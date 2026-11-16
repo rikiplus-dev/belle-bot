@@ -227,6 +227,14 @@ export function lateWalkBuilder(who, off, d, pee, poop) {
 
 /* ---------- עידוד וסטיקרים ---------- */
 
+// לחצנים מתחת להודעה "פלוני הוציא את בל": עידוד מהיר, או סטיקר והודעה משלכם
+export const cheerMarkup = (who) => ({
+  inline_keyboard: [
+    [btn('👏 כל הכבוד', `cn:p:${who}:0`), btn('🙏 תודה', `cn:p:${who}:1`)],
+    [btn('🎨 סטיקר או הודעה', `cn:s:${who}`)],
+  ],
+});
+
 export function cheerPick(user) {
   const others = MEMBERS.filter((m) => m.id !== user.member);
   const rows = [];

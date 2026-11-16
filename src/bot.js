@@ -68,7 +68,7 @@ async function onText(env, msg, ctx, origin) {
         return send(env, chat.id, await v.panel(env, user, opts));
       case 'walk': {
         const r = await act.walkStart(env, user.member, now);
-        if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id }));
+        if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
         return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
       }
       case 'cheer':
@@ -253,6 +253,35 @@ async function onSticker(env, msg) {
   await db.clearPending(env, msg.from.id);
   const n = await sendCheer(env, user, pend.state.slice(6), { sticker: msg.sticker.file_id });
   return send(env, msg.chat.id, await v.panel(env, user, { isPrivate: true, notice: n ? `💌 הסטיקר נשלח (${n})` : 'אף אחד מהנמענים לא מחובר לבוט עדיין' }));
+}
+
+// עידוד מתוך ההודעה "פלוני הוציא את בל"
+async function onCheerNotice(env, cq, user, now) {
+  const msg = cq.message;
+  const answer = (text, alert = false) =>
+    tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
+  const [, act2, to, idx] = cq.data.split(':');
+  if (!MEMBER_BY_ID[to] || to === user.member) return answer('אי אפשר לשלוח לעצמך', true);
+  const who = MEMBER_BY_ID[to].name;
+  const more = [{ text: '🎨 עוד סטיקר או הודעה', callback_data: `cn:s:${to}` }];
+  if (act2 === 'p') {
+    const text = CHEERS[num(idx)];
+    if (!text) return answer('לא מוכר', true);
+    const n = await sendCheer(env, user, to, { text });
+    await answer(n ? `💌 נשלח ל${who}` : `${who} עוד לא מחובר לבוט`, !n);
+    return edit(env, msg, { text: `${esc(msg.text || '')}\n\n💌 שלחת ל${esc(who)}: ${esc(text)}`, reply_markup: { inline_keyboard: [more] } });
+  }
+  if (act2 === 's') {
+    await db.setPending(env, cq.from.id, `cheer:${to}`, 0, now);
+    await answer();
+    return tgSafe(env, 'sendMessage', {
+      chat_id: msg.chat.id,
+      text: `💌 שלחו לי עכשיו <b>סטיקר</b> או <b>הודעה</b>, ואעביר ל${esc(who)}.`,
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '✖️ ביטול', callback_data: 'm:menu' }]] },
+    });
+  }
+  return answer();
 }
 
 async function onCheer(env, cq, user, opts, now) {
@@ -513,6 +542,7 @@ async function onCallback(env, cq, ctx, origin) {
   if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);
   if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
+  if (data.startsWith('cn:')) return onCheerNotice(env, cq, user, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {
     return Promise.all([answer('ההגדרות מנוהלות על ידי אמתי וריקי'), edit(env, msg, v.adminOnly)]);
   }
@@ -525,10 +555,10 @@ async function onCallback(env, cq, ctx, origin) {
     let r;
     if (arg === 'walk_start') {
       r = await act.walkStart(env, user.member, now);
-      if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id }));
+      if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
     } else if (arg === 'walk_end') {
       r = await act.walkEnd(env, user.member, now);
-      if (r.ok) ctx.waitUntil(broadcast(env, v.walkEndedText(r), { flag: 'notify_activity', exceptTgId: from.id }));
+      if (r.ok) ctx.waitUntil(broadcast(env, v.walkEndedText(r), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
     } else {
       r = await act.log(env, user.member, arg, now);
     }

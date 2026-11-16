@@ -592,6 +592,28 @@ try {
   assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /בל עשתה קקי, לא פיפי/.test(x.text)), 'הודעת סיכום עם פיפי וקקי');
   ok('הודעות טיול לכולם: "שולי הוציאה את בל לטיול, עשתה קקי לא פיפי"');
 
+  /* עידוד מתוך ההודעה על הטיול */
+  await post(cb(1002, 'a:walk_start'));
+  c = take();
+  const noticeMsg = c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /שולי הוציאה את בל לטיול/.test(x.text));
+  assert.ok(noticeMsg, 'ההודעה על הטיול נשלחה לריקי');
+  const nbtns = noticeMsg.reply_markup.inline_keyboard.flat();
+  assert.ok(nbtns.some((b) => b.callback_data === 'cn:p:shuli:0'), 'כפתור עידוד מהיר');
+  assert.ok(nbtns.some((b) => b.callback_data === 'cn:s:shuli'), 'כפתור סטיקר או הודעה');
+  await post(cb(1001, 'cn:p:shuli:0'));
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1002 && /ריקי/.test(x.text) && /כל הכבוד/.test(x.text)), 'שולי מקבלת את העידוד');
+  assert.match(find(c, 'editMessageText').text, /שלחת לשולי/);
+  await post(cb(1001, 'cn:s:shuli'));
+  assert.match(find(take(), 'sendMessage').text, /סטיקר/);
+  await post({ message: { message_id: 9, from: { id: 1001 }, chat: { id: 1001, type: 'private' }, sticker: { file_id: 'STK-3' } } });
+  assert.ok(take().find((x) => x.method === 'sendSticker' && x.chat_id === 1002 && x.sticker === 'STK-3'), 'סטיקר מגיע לשולי');
+  await post(cb(1002, 'cn:p:shuli:0'));
+  assert.match(toastOf(take()), /לעצמך/);
+  await post(cb(1002, 'a:walk_end'));
+  take();
+  ok('עידוד וסטיקר ישירות מתחת להודעה "שולי הוציאה את בל"');
+
   /* שעות אחריות */
   await post(cb(1002, 's:da'));
   assert.match(toastOf(take()), /אמתי וריקי/);
