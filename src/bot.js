@@ -8,6 +8,7 @@ import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.j
 import * as hl from './health.js';
 import * as wz from './wizards.js';
 import { lookup } from './foods.js';
+import { parseFreeText } from './parse.js';
 import * as bell from './bell.js';
 import { CHEERS } from './config.js';
 import { minutesAgoFromClock, startOfDay } from './time.js';
@@ -101,6 +102,14 @@ async function onText(env, msg, ctx, origin) {
         if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
         await db.clearPending(env, from.id);
         return send(env, chat.id, await hl.healthHome(env, now));
+      case 'invite': {
+        if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
+        const me = await tgSafe(env, 'getMe', {});
+        const link = me && me.username ? `https://t.me/${me.username}?start=${encodeURIComponent(env.FAMILY_CODE)}` : null;
+        return plain(env, chat.id, link
+          ? `🔗 <b>קישור הזמנה</b>\nשולחים לבן בית חדש. הלחיצה פותחת את הבוט ומדלגת על הקלדת הקוד.\n\n${esc(link)}\n\n<i>הקישור כולל את קוד המשפחה, לכן שלחו אותו רק לבני הבית.</i>`
+          : 'לא הצלחתי ליצור קישור כרגע. אפשר לשלוח לבן הבית את שם הבוט ואת קוד המשפחה.');
+      }
       case 'bell':
         await db.clearPending(env, from.id);
         return send(env, chat.id, await bell.hub(env, user, now));
@@ -202,6 +211,38 @@ async function onText(env, msg, ctx, origin) {
     }
   }
 
+  // טקסט חופשי: "פיפי בבית לפני חצי שעה", "בל אכלה", "יצאנו לטיול", "האם מותר בננה?"
+  const tz = env.TZ || 'Asia/Jerusalem';
+  const free = isPrivate ? parseFreeText(text, now, tz) : null;
+  if (free) {
+    if (free.intent === 'food') return send(env, chat.id, v.foodResult(text, lookup(text)));
+    if (free.intent === 'walk_start') {
+      const r = await act.walkStart(env, user.member, now);
+      if (r.ok) ctx.waitUntil(announceWalkStart(env, user, r.walk.id));
+      return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
+    }
+    if (free.intent === 'walk_end') {
+      const r = await act.walkEnd(env, user.member, now);
+      if (r.ok) ctx.waitUntil(announceWalkEnd(env, user, r));
+      return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice: r.ok ? r.notice : r.toast }));
+    }
+    if (free.intent === 'event') {
+      const notes = [];
+      for (const k of free.kinds) {
+        let kind = k;
+        if (k === 'pee' || k === 'poop') {
+          if (free.where === 'home') kind = `${k}_home`;
+          else if (free.where === 'out') kind = `${k}_out`;
+          else continue; // לא ידוע איפה: נשאל למטה
+        }
+        const late = free.minAgo && free.minAgo >= 1 && !kind.endsWith('_out');
+        const r = late ? await saveLate(env, ctx, user, from.id, user.member, kind, free.minAgo, now) : await act.log(env, user.member, kind, now);
+        notes.push(r.notice || r.toast);
+      }
+      if (notes.length) return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice: notes.join(' · ') }));
+    }
+  }
+
   // "פיפי" או "קקי" בטקסט חופשי
   const word = text.replace(/[^֐-׿a-z ]/gi, '').trim();
   const kindWord = /^פיפי/.test(word) ? 'pee' : /^קקי/.test(word) ? 'poop' : null;
@@ -233,6 +274,11 @@ async function register(env, msg, text, cmd, now) {
   if (!env.FAMILY_CODE) return plain(env, chatId, 'הבוט עוד לא הוגדר במלואו (חסר קוד משפחה).');
 
   let p = await db.getPending(env, id);
+  // קישור הזמנה: /start <קוד> מדלג על הקלדת הקוד
+  if (cmd && cmd.name === 'start' && cmd.args && cmd.args.toLowerCase() === String(env.FAMILY_CODE).trim().toLowerCase()) {
+    await db.setPending(env, id, 'await_member', 0, now);
+    return send(env, chatId, v.memberPicker());
+  }
   if (p && p.state === 'await_member') return send(env, chatId, v.memberPicker());
   if (!p || (cmd && cmd.name === 'start')) {
     await db.setPending(env, id, 'await_code', p ? p.attempts : 0, now);
@@ -265,7 +311,7 @@ async function onApproval(env, cq, user, origin) {
     await db.upsertUser(env, reqId, member, reqId, Date.now());
     const nu = await db.getUser(env, reqId);
     await tgSafe(env, 'sendMessage', { chat_id: reqId, text: `🎉 אושרתם בתור <b>${esc(who)}</b>. ברוכים הבאים!`, parse_mode: 'HTML' });
-    await send(env, reqId, await v.panel(env, nu, { isPrivate: true, origin, notice: 'אפשר להתחיל. /help מסביר הכול' }));
+    await send(env, reqId, v.tourStep(0));
     await answer('אושר');
     return edit(env, cq.message, { text: `✅ ${esc(MEMBER_BY_ID[user.member].name)} אישר/ה את ההרשמה בתור ${esc(who)}.`, reply_markup: { inline_keyboard: [] } });
   }
@@ -312,7 +358,7 @@ async function onRegister(env, cq, ctx, origin) {
   const user = await db.getUser(env, from.id);
   await edit(env, msg, { text: `🎉 נרשמתם בתור <b>${esc(MEMBER_BY_ID[member].name)}</b>. ברוכים הבאים לבלבוט!`, reply_markup: { inline_keyboard: [] } });
   await answer('נרשמתם בהצלחה');
-  return send(env, msg.chat.id, await v.panel(env, user, { isPrivate: true, origin, notice: 'אפשר להתחיל. /help מסביר הכול' }));
+  return send(env, msg.chat.id, v.tourStep(0));
 }
 
 /* ---------- עידוד וסטיקרים ---------- */
@@ -655,6 +701,10 @@ async function onCallback(env, cq, ctx, origin) {
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
 
   if (data.startsWith('rg:')) return onApproval(env, cq, user, origin);
+  if (data.startsWith('t:')) {
+    await tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id });
+    return edit(env, msg, v.tourStep(num(data.slice(2))));
+  }
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
   if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);

@@ -242,3 +242,24 @@ test('ניתוח תאונות ופער ארוחה', () => {
   assert.equal(mealGaps([{ ts: 0, kind: 'meal' }, { ts: 100 * M, kind: 'pee_out' }]).length, 0, 'מעל 90 דקות לא נספר');
   assert.equal(analyze([], now, tz).streak, 0);
 });
+
+import { parseFreeText, parseWhen } from '../src/parse.js';
+test('טקסט חופשי', () => {
+  const tz = 'Asia/Jerusalem';
+  const now = Date.UTC(2026, 10, 16, 12, 0); // 14:00 בישראל
+  const f = (t) => parseFreeText(t, now, tz);
+  assert.deepEqual(f('פיפי בבית לפני חצי שעה'), { intent: 'event', kinds: ['pee'], where: 'home', minAgo: 30 });
+  assert.deepEqual(f('קקי בבית ב-13:30'), { intent: 'event', kinds: ['poop'], where: 'home', minAgo: 30 });
+  assert.equal(f('פיפי וקקי בגינה').kinds.length, 2);
+  assert.equal(f('פיפי').where, null);
+  assert.deepEqual(f('בל אכלה'), { intent: 'event', kinds: ['meal'], where: null, minAgo: null });
+  assert.deepEqual(f('אכלה לפני 20 דקות').minAgo, 20);
+  assert.equal(f('יצאנו לטיול').intent, 'walk_start');
+  assert.equal(f('חזרנו מהטיול').intent, 'walk_end');
+  assert.equal(f('האם מותר בננה?').intent, 'food');
+  assert.equal(f('מותר לה גבינה').intent, 'food');
+  assert.equal(f('מה שלומך'), null);
+  assert.equal(parseWhen('לפני שעתיים', now, tz), 120);
+  assert.equal(parseWhen('לפני 2 שעות', now, tz), 120);
+  assert.equal(parseWhen('בלי זמן', now, tz), null);
+});

@@ -27,6 +27,7 @@ export async function setupTelegram({ token, secret, url }) {
       { command: 'walk', description: 'יוצאים לטיול' },
       { command: 'stars', description: 'כוכבים השבוע' },
       { command: 'today', description: 'מה היה היום' },
+      { command: 'invite', description: 'קישור הזמנה לבן בית חדש (לאמתי וריקי)' },
       { command: 'bell', description: 'הכול על בל: תעודה, משקל, אילוף' },
       { command: 'weight', description: 'תיעוד משקל (אפשר: /weight 2.4)' },
       { command: 'food', description: 'מה מותר לבל לאכול? (אפשר: /food בננה)' },

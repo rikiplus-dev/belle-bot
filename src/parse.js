@@ -1,5 +1,5 @@
 // פענוח טקסט חופשי שבני הבית מקלידים: תאריכים, משכי זמן, שעות, שורות תרופה ואירוע רפואי.
-import { startOfDay, parts } from './time.js';
+import { startOfDay, parts, minutesAgoFromClock } from './time.js';
 
 const DAY = 86400000;
 const norm = (s) => String(s || '').replace(/[״"]/g, '"').replace(/\s+/g, ' ').trim();
@@ -103,4 +103,41 @@ export function parseHealthLine(text, now, tz) {
   if (due === null && span) due = addSpan(at, span, tz);
   if (due !== null && due <= at) return { error: 'מועד החזרה צריך להיות אחרי תאריך האירוע' };
   return { title, at, due, notes: notes.join(' · ') || null };
+}
+
+/* ---------- טקסט חופשי: "פיפי בבית לפני חצי שעה", "בל אכלה", "יצאנו לטיול" ---------- */
+
+// כמה דקות אחורה מוזכרות בטקסט? null אם לא הוזכר זמן.
+export function parseWhen(text, now, tz) {
+  const t = norm(text);
+  if (/לפני\s+(חצי שעה)/.test(t)) return 30;
+  if (/לפני\s+רבע שעה/.test(t)) return 15;
+  if (/לפני\s+שעתיים/.test(t)) return 120;
+  if (/לפני\s+שעה(?!\s*\d)/.test(t)) return 60;
+  let m = t.match(/לפני\s+(\d{1,3})\s*(דקות|דקה|דק|ד)/);
+  if (m) return +m[1];
+  m = t.match(/לפני\s+(\d{1,2})\s*(שעות|שעה|שע)/);
+  if (m) return +m[1] * 60;
+  m = t.match(/(?:ב|בשעה\s+|ב-)(\d{1,2})[:.](\d{2})\b/) || t.match(/\bב\s*(\d{1,2})[:.](\d{2})\b/);
+  if (m && +m[1] < 24 && +m[2] < 60) return minutesAgoFromClock(+m[1], +m[2], now, tz);
+  return null;
+}
+
+// מזהה כוונה פשוטה בהודעה חופשית. מחזיר null אם לא הבין.
+export function parseFreeText(text, now, tz) {
+  const t = norm(text);
+  if (!t || t.length > 120) return null;
+  const minAgo = parseWhen(t, now, tz);
+  if (/מותר|אפשר לתת|אפשר לאכול|יכולה לאכול|יכולה לקבל/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'food' };
+  if (/^(חזרנו|חזרתי|חזרה|סיימנו|סיימתי)(\s|$)/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'walk_end' };
+  if (/^(יצאנו|יוצאים|יצאתי|יוצאת|יוצא|התחלנו)(\s|$)/.test(t) && /טיול|החוצה|עם בל|הולכים|הליכה/.test(t)) return { intent: 'walk_start' };
+  if (/^הכנתי\s+(אוכל|ארוחה)/.test(t)) return { intent: 'event', kinds: ['cook'], where: null, minAgo };
+  if (/אכלה|האכלתי|נתתי (לה )?(לאכול|אוכל)|ארוחה/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'event', kinds: ['meal'], where: null, minAgo };
+  const pee = /פיפי|השתינה/.test(t);
+  const poop = /קקי|עשתה צרכים|צרכים/.test(t);
+  if (pee || poop) {
+    const where = /בבית|בסלון|במטבח|בחדר|על השטיח|תאונה/.test(t) ? 'home' : /בחוץ|בגינה|בטיול|ברחוב|בחצר/.test(t) ? 'out' : null;
+    return { intent: 'event', kinds: [pee ? 'pee' : null, poop ? 'poop' : null].filter(Boolean), where, minAgo };
+  }
+  return null;
 }

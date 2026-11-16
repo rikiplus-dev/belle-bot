@@ -50,6 +50,7 @@ if (!hadDevVars) {
 const env = { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1', NO_UPDATE_NOTIFIER: '1' };
 const wr = (args) => execFileSync('npx', ['wrangler', ...args], { cwd: ROOT, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 wr(['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', state]);
+const sqlq = (q2) => wr(['d1', 'execute', 'DB', '--local', '--persist-to', state, '--command', q2]);
 
 const server = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT), '--persist-to', state, '--test-scheduled'], {
   cwd: ROOT,
@@ -812,6 +813,54 @@ try {
   await post(cb(1001, 's:meal'));
   assert.ok(find(take(), 'editMessageText', /אוטומטי/), 'וחוזר לאוטומטי אחרי הערכים');
   ok('תובנות ותזכורות אוטומטיות');
+
+  /* טקסט חופשי */
+  sqlq('DELETE FROM walks');
+  take();
+  await post(msg(1001, 'פיפי בבית לפני חצי שעה'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /עדכן|פיפי|תאונה/) , 'פיפי בבית אחורה נרשם');
+  assert.ok(c.some((x) => x.method === 'sendMessage' && x.chat_id === 1002 && /עדכן/.test(x.text)), 'שאר המשפחה מקבלת עדכון אחורה');
+  await post(msg(1001, 'בל אכלה'));
+  assert.ok(find(take(), 'sendMessage', /אכלה/), 'ארוחה בטקסט חופשי');
+  await post(msg(1001, 'יצאנו לטיול'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /טיול/), 'התחלת טיול בטקסט');
+  await post(msg(1001, 'פיפי בחוץ'));
+  assert.ok(find(take(), 'sendMessage', /פיפי/), 'פיפי בחוץ בתוך הטיול');
+  await post(msg(1001, 'חזרנו מהטיול'));
+  assert.ok(find(take(), 'sendMessage', /בל/), 'סיום טיול בטקסט');
+  await post(msg(1001, 'האם מותר לתת לבל שוקולד?'));
+  assert.ok(find(take(), 'sendMessage', /אסור לבל/), 'שאלת מזון בטקסט חופשי');
+  ok('טקסט חופשי: פיפי אחורה, ארוחה, טיול ושאלת מזון');
+
+  /* קישור הזמנה וסיור */
+  await post(msg(1002, '/invite'));
+  assert.ok(find(take(), 'sendMessage', /אמתי וריקי/), 'הזמנה רק למנהלים');
+  await post(msg(1001, '/invite'));
+  assert.ok(find(take(), 'sendMessage', /הזמנה|לא הצלחתי/), 'מנהלת מקבלת קישור');
+  await post(msg(1020, '/start Bell123'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /מי אתם/), 'קישור הזמנה מדלג על הקוד');
+  await post(cb(1020, 'reg:beri'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /ברוכים הבאים/), 'סיור אחרי הרשמה');
+  await post(cb(1020, 't:1'));
+  assert.ok(find(take(), 'editMessageText', /שכחתם/), 'סיור שלב 2');
+  await post(msg(1021, '/start Wrong'));
+  assert.ok(find(take(), 'sendMessage', /קוד המשפחה/), 'קוד שגוי בקישור: מבקשים קוד');
+  sqlq('DELETE FROM users WHERE tg_id=1020');
+  ok('קישור הזמנה וסיור לבן בית חדש');
+
+  /* לוח מוצמד */
+  take();
+  await post(msg(1002, '/menu'));
+  c = take();
+  assert.ok(c.some((x) => x.method === 'pinChatMessage') && c.some((x) => x.method === 'sendMessage'), 'לוח נשלח ומוצמד');
+  await post(msg(1002, '/menu'));
+  c = take();
+  assert.ok(c.some((x) => x.method === 'deleteMessage'), 'הלוח הישן נמחק');
+  ok('לוח ראשי מוצמד ומתחלף');
 
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
