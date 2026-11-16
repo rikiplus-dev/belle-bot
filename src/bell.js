@@ -1,4 +1,4 @@
-// הכול על בל: תעודה, משקל, חיברות ופקודות, טיפים, תבנית חיסונים ודוח מלא.
+// הכול על בל: תעודה, משקל, חיברות ופקודות, טיפים ודוח מלא.
 import * as db from './db.js';
 import { DOG, HEALTH_KINDS, isAdmin } from './config.js';
 import { esc } from './telegram.js';
@@ -100,7 +100,7 @@ export async function hub(env, user, now, notice = '') {
     [btn('🍖 מה מותר לאכול', 'f:home')],
   ];
   if (isAdmin(user)) {
-    rows.push([btn('🩺 בריאות', 'h:home'), btn('💉 תבנית חיסונים', 'b:vt')]);
+    rows.push([btn('🩺 בריאות', 'h:home'), btn('💉 תיעוד חיסון שהיה', 'hw:new:past')]);
     rows.push([btn('📄 דוח מלא לווטרינר', 'b:rep')]);
   }
   rows.push([btn('⬅️ חזרה', 'm:menu')]);
@@ -212,75 +212,6 @@ export function tipView(i, now) {
     text: `${x.kind === 'tip' ? '💡 <b>טיפ לאילוף</b>' : '🎉 <b>עובדה כיפית</b>'}\n\n<b>${esc(x.t)}</b>\n${esc(x.b)}`,
     reply_markup: kb([[btn('◀️ הקודם', `b:tip:${n - 1}`), btn(`${n + 1}/${all.length}`, `b:tip:${n}`), btn('הבא ▶️', `b:tip:${n + 1}`)], [btn('⬅️ חזרה', 'b:hub')]]),
   };
-}
-
-/* ---------- תבנית חיסונים וטיפולים לגור ---------- */
-
-// לוח לדוגמה לגורים בישראל. כדאי לאשר מול הווטרינר של בל.
-export const VACCINE_PLAN = [
-  { w: 8, kind: 'vaccine', title: 'משושה: מנה ראשונה' },
-  { w: 8, kind: 'deworm', title: 'תילוע (8 שבועות)' },
-  { w: 8, kind: 'flea', title: 'טיפול נגד פרעושים וקרציות (התחלה)' },
-  { w: 12, kind: 'vaccine', title: 'משושה + כלבת + לפטו: מנה שנייה' },
-  { w: 12, kind: 'deworm', title: 'תילוע (12 שבועות)' },
-  { w: 16, kind: 'vaccine', title: 'כלבת ולפטו: חיזוק' },
-  { w: 16, kind: 'deworm', title: 'תילוע (16 שבועות)' },
-  { w: 65, kind: 'vaccine', title: 'חיזוק כללי (גיל 15 חודשים)' },
-];
-
-export async function vaccineView(env, now) {
-  const tz = tzOf(env);
-  const prof = await db.getProfile(env);
-  if (!prof.birth) {
-    return { text: '💉 <b>תבנית חיסונים וטיפולים</b>\nכדי לחשב תאריכים צריך קודם את תאריך הלידה של בל.', reply_markup: kb([[btn('🎂 הגדרת תאריך לידה', 'b:bd')], [btn('⬅️ חזרה', 'b:hub')]]) };
-  }
-  const today = startOfDay(now, tz);
-  const lines = [`💉 <b>תבנית חיסונים וטיפולים</b>`, `<i>לפי גיל ${esc(ageText(+prof.birth, now) || '')}. זו הצעה כללית, לאשר מול הווטרינר.</i>`, ''];
-  let future = 0;
-  let past = 0;
-  for (const it of VACCINE_PLAN) {
-    const due = startOfDay(+prof.birth + it.w * 7 * DAY, tz);
-    const have = await db.healthByTitle(env, it.title);
-    const k = HEALTH_KINDS[it.kind];
-    let mark;
-    if (have && have.done) mark = '✅ בוצע';
-    else if (have) mark = '⏳ מתוכנן';
-    else if (due >= today) {
-      mark = '⬜ להוסיף';
-      future++;
-    } else {
-      mark = '❔ התאריך עבר';
-      past++;
-    }
-    lines.push(`${k.emoji} ${esc(it.title)}\n   ${fmtDate(due, tz)} · ${mark}`);
-  }
-  const rows = [];
-  if (future) rows.push([btn(`⏰ הוספת ${future} תזכורות עתידיות`, 'b:vta')]);
-  if (past) rows.push([btn(`✅ ${past} שעברו: סימון כבוצעו`, 'b:vtd')]);
-  rows.push([btn('➕ אירוע שהיה (יומן)', 'hw:new:past'), btn('📒 יומן', 'h:log')]);
-  rows.push([btn('⬅️ חזרה', 'b:hub')]);
-  if (past) lines.push('', '<i>"סימון כבוצעו" רושם אותם בתאריך המשוער. אם בוצעו בתאריך אחר, אפשר לתעד אותם ביומן.</i>');
-  return { text: lines.join('\n'), reply_markup: kb(rows) };
-}
-
-export async function applyVaccinePlan(env, mode, member, now) {
-  const tz = tzOf(env);
-  const prof = await db.getProfile(env);
-  if (!prof.birth) return 0;
-  const today = startOfDay(now, tz);
-  let n = 0;
-  for (const it of VACCINE_PLAN) {
-    const due = startOfDay(+prof.birth + it.w * 7 * DAY, tz);
-    if (await db.healthByTitle(env, it.title)) continue;
-    if (mode === 'future' && due >= today) {
-      await db.addHealth(env, { kind: it.kind, title: it.title, at: today, notes: 'מהתבנית לגורים', due, member, done: 0 }, now);
-      n++;
-    } else if (mode === 'past' && due < today) {
-      await db.addHealth(env, { kind: it.kind, title: it.title, at: due, notes: 'מהתבנית (תאריך משוער)', due: null, member, done: 1 }, now);
-      n++;
-    }
-  }
-  return n;
 }
 
 /* ---------- דוח מלא (קובץ להדפסה או לשליחה לווטרינר) ---------- */
@@ -396,14 +327,6 @@ export async function onBellCallback(env, data, user, now) {
       return { view: await insightsView(env, now) };
     case 'tip':
       return { view: tipView(num(a1) || 0, now) };
-    case 'vt':
-      return admin ? { view: await vaccineView(env, now) } : needAdmin();
-    case 'vta':
-    case 'vtd': {
-      if (!admin) return needAdmin();
-      const n = await applyVaccinePlan(env, act === 'vta' ? 'future' : 'past', user.member, now);
-      return { view: await vaccineView(env, now), toast: n ? `נוספו ${n}` : 'אין מה להוסיף' };
-    }
     case 'rep':
       if (!admin) return needAdmin();
       return { toast: 'שולח דוח...', doc: { name: `bell-report-${fmtDate(now, tz).replace(/\./g, '-')}.html`, html: await reportHtml(env, now), caption: `📄 דוח מלא של ${DOG}. אפשר לפתוח בדפדפן, להדפיס או להעביר לווטרינר.` } };

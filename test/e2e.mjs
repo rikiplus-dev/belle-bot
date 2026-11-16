@@ -746,13 +746,13 @@ try {
   assert.ok(find(c, 'sendMessage', /אסור לבל/), '/food עם שם מזון');
   ok('מאגר מזון: תפריט, רשימות, בדיקה חופשית, לא מוכר ופקודה');
 
-  /* הכול על בל: תעודה, משקל, חיברות, פקודות, תבנית חיסונים ודוח */
+  /* הכול על בל: תעודה, משקל, חיברות, פקודות ודוח */
   take();
   await post(cb(1001, 'b:hub'));
   c = take();
   assert.ok(find(c, 'editMessageText', /הכול על בל/) && JSON.stringify(c).includes('b:rep'), 'מרכז בל למנהלת, עם דוח');
   await post(cb(1002, 'b:hub'));
-  assert.ok(!JSON.stringify(take()).includes('b:rep'), 'שולי לא רואה דוח ותבנית');
+  assert.ok(!JSON.stringify(take()).includes('b:rep'), 'שולי לא רואה דוח');
   await post(cb(1002, 'b:rep'));
   assert.match(toastOf(take()), /אמתי וריקי/);
   await post(cb(1002, 'b:bdw:10'));
@@ -784,19 +784,12 @@ try {
   await post(cb(1002, 'b:ct:1'));
   await post(cb(1002, 'b:ct:1'));
   assert.ok(find(take(), 'editMessageText', /מבינה/), 'פקודה מתקדמת');
-  await post(cb(1001, 'b:vt'));
-  c = take();
-  assert.ok(find(c, 'editMessageText', /תבנית חיסונים/) && JSON.stringify(c).includes('b:vta'), 'תבנית חיסונים עם הוספה');
-  await post(cb(1001, 'b:vta'));
-  assert.match(toastOf(take()), /נוספו/);
-  await post(cb(1001, 'b:vta'));
-  assert.match(toastOf(take()), /אין מה/, 'לא מוסיף פעמיים');
   await post(cb(1001, 'b:rep'));
   c = take();
   assert.ok(find(c, 'sendDocument') || c.some((x) => x.method === 'sendDocument'), 'דוח נשלח כקובץ');
   await post(cb(1002, 'b:tip:0'));
   assert.ok(find(take(), 'editMessageText', /טיפ/));
-  ok('הכול על בל: תעודה, משקל, חיברות, פקודות, תבנית חיסונים ודוח');
+  ok('הכול על בל: תעודה, משקל, חיברות, פקודות ודוח');
 
   await post(cb(1002, 'b:ins'));
   c = take();
