@@ -5,6 +5,7 @@ import { broadcast } from './notify.js';
 import { tgSafe, esc } from './telegram.js';
 import { parts, startOfWeek, dur } from './time.js';
 import { weeklyText } from './views.js';
+import { healthCron } from './health.js';
 
 const MIN = 60000;
 
@@ -39,6 +40,10 @@ export async function runCron(env, now = Date.now()) {
       out.weekly = await broadcast(env, await weeklyText(env, now), { flag: 'notify' });
     }
   }
+
+  const hc = await healthCron(env, now);
+  out.meds = hc.meds;
+  out.due = hc.due;
 
   if (p.h === 3) await db.pruneReminders(env, now - 14 * 86400000);
   if (quiet) return out;

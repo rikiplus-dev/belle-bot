@@ -375,6 +375,88 @@ try {
   assert.match(toastOf(take()), /יממה/);
   ok('עדכון אחורה: סוג לא מורשה וזמן רחוק נדחים');
 
+  /* הרשאות: בריאות והגדרות רק לאמתי וריקי */
+  await post(msg(1002, '/menu'));
+  c = take();
+  const shuliPanel = find(c, 'sendMessage', /בל/);
+  assert.ok(!JSON.stringify(shuliPanel.reply_markup).includes('h:home'), 'שולי לא רואה כפתור בריאות');
+  assert.ok(!JSON.stringify(shuliPanel.reply_markup).includes('m:settings'), 'שולי לא רואה כפתור הגדרות');
+  await post(cb(1002, 'h:home'));
+  assert.match(toastOf(take()), /אמתי וריקי/);
+  await post(cb(1002, 'm:settings'));
+  assert.match(find(take(), 'editMessageText').text, /אמתי וריקי/);
+  await post(msg(1002, '/settings'));
+  assert.match(find(take(), 'sendMessage').text, /אמתי וריקי/);
+  await post(cb(1002, 's:notify'));
+  take();
+  await post(cb(1001, 'm:menu'));
+  assert.ok(JSON.stringify(find(take(), 'editMessageText').reply_markup).includes('h:home'), 'ריקי רואה כפתור בריאות');
+  ok('בריאות והגדרות סגורות לשאר בני הבית');
+
+  /* תרופות עם תזכורות */
+  await post(cb(1001, 'h:home'));
+  assert.match(find(take(), 'editMessageText').text, /בריאות/);
+  await post(cb(1001, 'h:medadd'));
+  take();
+  await post(msg(1001, 'אמוקסיצילין | חצי כדור'));
+  assert.match(find(take(), 'sendMessage').text, /שלושה חלקים/);
+  await post(msg(1001, 'אמוקסיצילין | חצי כדור | 08:00 20:00 | 7 ימים'));
+  c = take();
+  assert.match(find(c, 'sendMessage').text, /נוספה תרופה/);
+  assert.match(find(c, 'sendMessage').text, /אמוקסיצילין/);
+  sql('DELETE FROM meds');
+  const nowT = Date.now() - 5 * 60000;
+  const hm = new Date(nowT).toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false });
+  sql(`INSERT INTO meds(name,dose,times,start_at,end_at,active,member,created_at) VALUES('אמוקסיצילין','חצי כדור','${hm}',${Date.now() - 3 * 3600000},NULL,1,'riki',${Date.now()})`);
+  take();
+  await runCron();
+  await new Promise((r2) => setTimeout(r2, 1200));
+  c = take();
+  const remind = c.filter((x) => x.method === 'sendMessage' && /אמוקסיצילין/.test(x.text || ''));
+  assert.equal(remind.length, 1, 'תזכורת תרופה רק לאמתי וריקי (רק ריקי רשום כאן)');
+  assert.equal(remind[0].chat_id, 1001);
+  const giveBtn = remind[0].reply_markup.inline_keyboard[0][0];
+  assert.match(giveBtn.callback_data, /^hg:\d+:\d{8}:\d{4}:g$/);
+  await runCron();
+  await new Promise((r2) => setTimeout(r2, 800));
+  assert.ok(!take().find((x) => /אמוקסיצילין/.test(x.text || '')), 'לא שולחים שוב באותה דקה');
+  await post(cb(1001, giveBtn.callback_data));
+  c = take();
+  assert.match(toastOf(c), /ניתנה/);
+  await post(cb(1002, giveBtn.callback_data));
+  assert.match(toastOf(take()), /אמתי וריקי/);
+  await post(cb(1001, giveBtn.callback_data));
+  assert.match(toastOf(take()), /כבר עודכן/);
+  await post(cb(1001, 'h:meds'));
+  assert.match(find(take(), 'editMessageText').text, /אמוקסיצילין/);
+  ok('תרופות: הוספה, תזכורת בשעה, "ניתנה" ללא כפילות והרשאות');
+
+  /* יומן רפואי ומועדי חזרה */
+  await post(cb(1001, 'h:add'));
+  take();
+  await post(cb(1001, 'h:k:vaccine'));
+  assert.match(find(take(), 'editMessageText').text, /חיסון/);
+  await post(msg(1001, 'כלבת | 12.11 | שנה'));
+  c = take();
+  assert.match(find(c, 'sendMessage').text, /נוסף ליומן: כלבת/);
+  await post(cb(1001, 'h:log'));
+  const logTxt = find(take(), 'editMessageText').text;
+  assert.match(logTxt, /כלבת/);
+  assert.match(logTxt, /לחזור/);
+  await post(cb(1001, 'h:undo'));
+  assert.match(toastOf(take()), /נמחק: כלבת/);
+  const tNow = Date.now();
+  sql(`INSERT INTO health_log(kind,title,at,next_due,member,created_at) VALUES('vaccine','משושה',${tNow - 20 * 86400000},${tNow},'riki',${tNow})`);
+  const hr = Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }));
+  if (hr >= 9 && hr < 20) {
+    await runCron();
+    await new Promise((r2) => setTimeout(r2, 1200));
+    assert.ok(take().find((x) => x.method === 'sendMessage' && /משושה/.test(x.text || '') && /היום/.test(x.text)), 'תזכורת ביום החיסון');
+    ok('יומן רפואי: הוספה, הצגה, מחיקה ותזכורת ביום המועד');
+  } else {
+    ok('יומן רפואי: הוספה, הצגה ומחיקה (תזכורת מועד נבדקת רק בשעות היום)');
+  }
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message);

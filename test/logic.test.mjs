@@ -80,3 +80,30 @@ test('deploy helpers', async () => {
   assert.equal(withDatabaseId('x REPLACE_WITH_DATABASE_ID', 'id1'), 'x id1');
   assert.deepEqual(missingEnv({ BOT_TOKEN: 'a' }).length, 4);
 });
+
+import { parseDate, parseSpan, parseTimes, parseMedLine, parseHealthLine, addSpan } from '../src/parse.js';
+test('health parsing', async () => {
+  const tz = 'Asia/Jerusalem';
+  const now = Date.UTC(2026, 10, 16, 8, 0);
+  assert.ok(parseDate('12.11', now, tz) < now);
+  assert.equal(parseDate('31.02', now, tz), null);
+  assert.equal(parseDate('x', now, tz), null);
+  assert.deepEqual(parseSpan('3 שבועות'), { days: 21 });
+  assert.deepEqual(parseSpan('שנה'), { months: 12 });
+  assert.deepEqual(parseSpan('חודשיים'), { months: 2 });
+  assert.equal(parseSpan('בקרוב'), null);
+  assert.deepEqual(parseTimes('8:00, 20.30'), ['08:00', '20:30']);
+  assert.equal(parseTimes('25:00'), null);
+  const m = parseMedLine('אנטיביוטיקה | חצי כדור | 08:00 20:00 | 7 ימים', now, tz);
+  assert.deepEqual([m.name, m.dose, m.times.join()], ['אנטיביוטיקה', 'חצי כדור', '08:00,20:00']);
+  assert.ok(m.end > now);
+  assert.ok(parseMedLine('רק שם', now, tz).error);
+  assert.equal(parseMedLine('ויטמין | טיפה | 09:00', now, tz).end, null);
+  const h = parseHealthLine('כלבת | 12.11 | שנה | הערה', now, tz);
+  assert.equal(h.title, 'כלבת');
+  assert.equal(h.notes, 'הערה');
+  assert.equal(h.due, addSpan(h.at, { months: 12 }, tz));
+  const noDate = parseHealthLine('בדיקת דם', now, tz);
+  assert.equal(noDate.due, null);
+  assert.ok(parseHealthLine('x | 12.11.26 | 01.01.20', now, tz).error);
+});

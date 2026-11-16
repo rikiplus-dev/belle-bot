@@ -1,6 +1,6 @@
 // מה שהבוט מציג: טקסטים ומקלדות. הכול בעברית.
 import * as db from './db.js';
-import { DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
+import { isAdmin, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
 import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
 
@@ -42,8 +42,10 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   rows.push([btn('🕐 שכחתי לעדכן', 'm:late')]);
   const last = [];
   if (isPrivate && origin) last.push({ text: '📊 לוח בקרה', web_app: { url: origin } });
-  last.push(btn('⚙️ הגדרות', 'm:settings'));
-  rows.push(last);
+  if (isAdmin(user)) {
+    rows.push([btn('🩺 בריאות', 'h:home'), btn('⚙️ הגדרות', 'm:settings')]);
+  }
+  if (last.length) rows.push(last);
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: rows } };
 }
@@ -110,6 +112,11 @@ export async function todayView(env) {
 }
 
 /* ---------- הגדרות ---------- */
+
+export const adminOnly = {
+  text: '⚙️ ההגדרות והבריאות מנוהלות על ידי אמתי וריקי.',
+  reply_markup: { inline_keyboard: [[btn('⬅️ חזרה', 'm:menu')]] },
+};
 
 export async function settingsView(env, user) {
   const t = await db.thresholds(env);
@@ -231,6 +238,7 @@ export const helpText = [
   '• 🏠 פיפי או קקי <b>בבית</b> לא מורידים כוכבים, הם עוזרים לראות מתי זה קורה.',
   '• 🍽 אכלה, 👩‍🍳 הכנתי אוכל.',
   '• ↩️ ביטול מבטל את הפעולה האחרונה שלך (עד 15 דקות).',
+  '• 🩺 <b>בריאות</b> (לאמתי וריקי): תרופות עם תזכורות, יומן רפואי ומועדי חיסונים.',
   '• 🕐 <b>שכחתי לעדכן</b> מוסיף אחורה טיול, פיפי/קקי בבית או אוכל, עד יממה אחורה, וגם על שם מישהו אחר.',
   '',
   'אפשר גם לכתוב "פיפי" או "קקי" והבוט ישאל איפה.',

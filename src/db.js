@@ -231,3 +231,71 @@ export const walkStartedSince = async (env, ts) => !!(await q(env, 'SELECT 1 x F
 export const staleWalk = (env, before) => q(env, 'SELECT * FROM walks WHERE ended_at IS NULL AND started_at<? LIMIT 1', before).first();
 export const lastWalkEventTs = async (env, walkId) =>
   (await q(env, 'SELECT MAX(ts) t FROM events WHERE walk_id=?', walkId).first())?.t || 0;
+
+/* ---------- בריאות ---------- */
+
+export async function addHealth(env, h, now) {
+  const r = await q(
+    env,
+    'INSERT INTO health_log(kind,title,at,notes,next_due,member,created_at) VALUES(?,?,?,?,?,?,?)',
+    h.kind,
+    h.title,
+    h.at,
+    h.notes || null,
+    h.due ?? null,
+    h.member,
+    now,
+  ).run();
+  return r.meta.last_row_id;
+}
+
+export const recentHealth = async (env, limit = 12) =>
+  (await q(env, 'SELECT * FROM health_log ORDER BY at DESC, id DESC LIMIT ?', limit).all()).results;
+
+// מוחק את הרשומה האחרונה שבן הבית הזה הוסיף (עד שבוע אחורה)
+export async function deleteLastHealth(env, member, now) {
+  const row = await q(env, 'SELECT * FROM health_log WHERE member=? AND created_at>=? ORDER BY id DESC LIMIT 1', member, now - 7 * 86400000).first();
+  if (!row) return null;
+  await q(env, 'DELETE FROM health_log WHERE id=?', row.id).run();
+  return row;
+}
+
+// מועדי חזרה שעוד לא טופלו (אין רשומה חדשה יותר עם אותו תיאור)
+export const dueHealth = async (env, until) =>
+  (
+    await q(
+      env,
+      `SELECT * FROM health_log h WHERE next_due IS NOT NULL AND next_due<=?
+       AND NOT EXISTS (SELECT 1 FROM health_log x WHERE x.title=h.title AND x.at>h.at)
+       ORDER BY next_due`,
+      until,
+    ).all()
+  ).results;
+
+export async function addMed(env, m, now) {
+  const r = await q(
+    env,
+    'INSERT INTO meds(name,dose,times,start_at,end_at,active,member,created_at) VALUES(?,?,?,?,?,1,?,?)',
+    m.name,
+    m.dose,
+    m.times.join(','),
+    now,
+    m.end ?? null,
+    m.member,
+    now,
+  ).run();
+  return r.meta.last_row_id;
+}
+
+export const activeMeds = async (env, now) =>
+  (await q(env, 'SELECT * FROM meds WHERE active=1 AND (end_at IS NULL OR end_at>?) ORDER BY id', now).all()).results;
+
+export const stopMed = async (env, id) => (await q(env, 'UPDATE meds SET active=0 WHERE id=? AND active=1', id).run()).meta.changes > 0;
+export const getMed = (env, id) => q(env, 'SELECT * FROM meds WHERE id=?', id).first();
+
+export const dosesFor = async (env, medId) => (await q(env, 'SELECT * FROM med_doses WHERE med_id=?', medId).all()).results;
+export const getDose = (env, medId, slot) => q(env, 'SELECT * FROM med_doses WHERE med_id=? AND slot=?', medId, slot).first();
+export async function recordDose(env, medId, slot, status, member, now) {
+  const r = await q(env, 'INSERT OR IGNORE INTO med_doses(med_id,slot,status,at,member) VALUES(?,?,?,?,?)', medId, slot, status, now, member).run();
+  return r.meta.changes > 0;
+}

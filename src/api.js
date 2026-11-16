@@ -6,6 +6,8 @@ import { DOG, MEMBERS, MEMBER_BY_ID, KINDS } from './config.js';
 import { startOfDay, startOfWeek, shortDay } from './time.js';
 import { broadcast } from './notify.js';
 import { walkStartedText, walkEndedText } from './views.js';
+import { isAdmin } from './config.js';
+import { healthState } from './health.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -88,6 +90,7 @@ export async function buildState(env, user, now = Date.now()) {
     stars_week: weekStars,
     stars_total: allStars,
     feed: feed.slice(0, 120),
+    health: isAdmin(user) ? await healthState(env, now) : null,
   };
 }
 

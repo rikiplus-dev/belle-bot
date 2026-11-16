@@ -232,7 +232,60 @@
 
     renderChart();
     renderBoard();
+    renderHealth();
     renderFeed();
+  }
+
+  function renderHealth() {
+    var card = $('healthCard');
+    var H = S.health;
+    if (!H) { card.hidden = true; return; }
+    card.hidden = false;
+    var box = $('health');
+    box.replaceChildren();
+    function fmt(ts) {
+      return new Date(ts).toLocaleDateString('he-IL', { day: 'numeric', month: 'numeric', year: '2-digit', timeZone: S.tz });
+    }
+    function sub(text) { box.appendChild(el('h3', 'hsub', text)); }
+    sub('תרופות היום');
+    if (!H.meds.length) box.appendChild(el('p', 'hnone', 'אין תרופות פעילות'));
+    H.meds.forEach(function (m) {
+      var row = el('div', 'hrow');
+      var main = el('div', 'main');
+      main.appendChild(el('b', '', m.name));
+      main.appendChild(el('span', 'sub', m.dose));
+      row.appendChild(main);
+      var slots = el('div', 'slots');
+      m.slots.forEach(function (s) {
+        var mark = s.status === 'given' ? '✅' : s.status === 'skipped' ? '⏭' : s.status === 'missed' ? '❗' : '⏳';
+        slots.appendChild(el('span', 'slot ' + s.status, s.time + ' ' + mark));
+      });
+      row.appendChild(slots);
+      box.appendChild(row);
+    });
+    sub('מועדים קרובים');
+    if (!H.due.length) box.appendChild(el('p', 'hnone', 'אין מועדים בחודשיים הקרובים'));
+    H.due.forEach(function (d) {
+      var row = el('div', 'hrow' + (d.days < 0 ? ' late' : ''));
+      var main = el('div', 'main');
+      main.appendChild(el('b', '', d.title));
+      main.appendChild(el('span', 'sub', d.label + ' · ' + fmt(d.next_due)));
+      row.appendChild(main);
+      row.appendChild(el('span', 'when', d.days < 0 ? 'עבר לפני ' + (-d.days) + ' ימים' : d.days === 0 ? 'היום' : d.days === 1 ? 'מחר' : 'בעוד ' + d.days + ' ימים'));
+      box.appendChild(row);
+    });
+    sub('יומן רפואי');
+    if (!H.log.length) box.appendChild(el('p', 'hnone', 'עדיין אין רשומות'));
+    H.log.forEach(function (l) {
+      var row = el('div', 'hrow');
+      var main = el('div', 'main');
+      main.appendChild(el('b', '', l.title));
+      main.appendChild(el('span', 'sub', l.label + (l.notes ? ' · ' + l.notes : '')));
+      row.appendChild(main);
+      row.appendChild(el('span', 'when', fmt(l.at)));
+      box.appendChild(row);
+    });
+    box.appendChild(el('p', 'hnone', 'מעדכנים דרך הבוט: 🩺 בריאות'));
   }
 
   function renderChart() {

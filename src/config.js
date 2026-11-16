@@ -48,3 +48,17 @@ export const LATE_KINDS = ['pee_home', 'poop_home', 'meal', 'cook'];
 export const LATE_OFFSETS = [10, 20, 30, 60, 120, 180];
 export const LATE_WALK_DURS = [10, 20, 30, 45, 60];
 export const MAX_LATE_MIN = 24 * 60; // עד יממה אחורה
+
+// בריאות והגדרות: רק מי שברשימה רואה ומעדכן
+export const ADMINS = ['amti', 'riki'];
+export const isAdmin = (user) => !!user && ADMINS.includes(user.member);
+
+export const HEALTH_KINDS = {
+  vaccine: { emoji: '💉', label: 'חיסון' },
+  deworm: { emoji: '🪱', label: 'תילוע' },
+  flea: { emoji: '🐜', label: 'פרעושים וקרציות' },
+  blood: { emoji: '🩸', label: 'בדיקת דם' },
+  vet: { emoji: '🩺', label: 'ביקור וטרינר' },
+  surgery: { emoji: '✂️', label: 'ניתוח או עיקור' },
+  other: { emoji: '📝', label: 'אחר' },
+};

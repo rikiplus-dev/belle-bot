@@ -4,7 +4,8 @@ import * as act from './actions.js';
 import * as v from './views.js';
 import { tgSafe, esc } from './telegram.js';
 import { broadcast } from './notify.js';
-import { DOG, MEMBER_BY_ID, LATE_KINDS } from './config.js';
+import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
+import * as hl from './health.js';
 import { minutesAgoFromClock } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
 
@@ -75,7 +76,11 @@ async function onText(env, msg, ctx, origin) {
       case 'today':
         return send(env, chat.id, await v.todayView(env));
       case 'settings':
-        return send(env, chat.id, await v.settingsView(env, user));
+        return send(env, chat.id, isAdmin(user) ? await v.settingsView(env, user) : v.adminOnly);
+      case 'health':
+        if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
+        await db.clearPending(env, from.id);
+        return send(env, chat.id, await hl.healthHome(env, now));
       case 'undo': {
         const r = await act.undo(env, user.member, now);
         return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
@@ -87,8 +92,28 @@ async function onText(env, msg, ctx, origin) {
     }
   }
 
-  // שעה מדויקת לעדכון אחורה, למשל 14:30
   const pend = await db.getPending(env, from.id);
+
+  // הוספת תרופה או אירוע רפואי בהודעה אחת
+  if (pend && (pend.state === 'medadd' || pend.state.startsWith('hadd:')) && isAdmin(user)) {
+    if (now - pend.updated_at > 15 * 60000) {
+      await db.clearPending(env, from.id);
+    } else {
+      const medMode = pend.state === 'medadd';
+      const r = medMode
+        ? await hl.addMedFromText(env, user.member, text, now)
+        : await hl.addHealthFromText(env, user.member, pend.state.slice(5), text, now);
+      if (!r.ok) return plain(env, chat.id, `${esc(r.error)}\nנסו שוב, או שלחו /health כדי לצאת.`);
+      await db.clearPending(env, from.id);
+      const tz = env.TZ || 'Asia/Jerusalem';
+      const note = medMode
+        ? `💊 נוספה תרופה: ${r.med.name} · ${r.med.dose} · ${r.med.times.join(' ')}`
+        : `${HEALTH_KINDS[r.entry.kind].emoji} נוסף ליומן: ${r.entry.title}${r.entry.due ? ' · לחזור ב-' + hl.fmtDate(r.entry.due, tz) : ''}`;
+      return send(env, chat.id, await hl.healthHome(env, now, note));
+    }
+  }
+
+  // שעה מדויקת לעדכון אחורה, למשל 14:30
   if (pend && pend.state.startsWith('late:')) {
     const tm = text.match(/^(\d{1,2})[:.](\d{2})$/);
     if (now - pend.updated_at > 10 * 60000) {
@@ -222,6 +247,55 @@ async function onLate(env, cq, user, ctx, opts, now) {
   await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);
 }
 
+/* ---------- בריאות ---------- */
+
+async function onHealth(env, cq, user, now) {
+  const msg = cq.message;
+  const answer = (text, alert = false) =>
+    tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
+  if (!isAdmin(user)) return answer('הבריאות מנוהלת על ידי אמתי וריקי', true);
+  const parts = cq.data.split(':');
+
+  // לחיצה על "ניתנה" או "דילגנו" בתזכורת
+  if (parts[0] === 'hg') {
+    const [, medId, day, time, st] = parts;
+    const r = await hl.giveDose(env, num(medId), day, time, st === 'g' ? 'given' : 'skipped', user.member, now);
+    await answer(r.text);
+    const who = MEMBER_BY_ID[user.member].name;
+    if (r.med) {
+      const stamp = r.ok ? `${r.text} · ${esc(who)}` : `ℹ️ ${esc(r.text)}`;
+      await edit(env, msg, { text: `💊 <b>${esc(r.med.name)}</b> · ${esc(r.med.dose)}\n${stamp}`, reply_markup: { inline_keyboard: [] } });
+    }
+    return;
+  }
+
+  await db.clearPending(env, cq.from.id);
+  const act2 = parts[1];
+  let view;
+  let toast = '';
+  if (act2 === 'home') view = await hl.healthHome(env, now);
+  else if (act2 === 'meds') view = await hl.medsView(env, now);
+  else if (act2 === 'log') view = await hl.logView(env);
+  else if (act2 === 'add') view = hl.kindPicker();
+  else if (act2 === 'k') {
+    if (!HEALTH_KINDS[parts[2]]) return answer('לא מוכר', true);
+    await db.setPending(env, cq.from.id, `hadd:${parts[2]}`, 0, now);
+    view = hl.eventPrompt(parts[2]);
+  } else if (act2 === 'medadd') {
+    await db.setPending(env, cq.from.id, 'medadd', 0, now);
+    view = hl.medPrompt();
+  } else if (act2 === 'stop') {
+    const ok = await db.stopMed(env, num(parts[2]));
+    toast = ok ? '⏹ התרופה הופסקה' : 'כבר הופסקה';
+    view = await hl.medsView(env, now);
+  } else if (act2 === 'undo') {
+    const row = await db.deleteLastHealth(env, user.member, now);
+    toast = row ? `נמחק: ${row.title}` : 'אין מה למחוק';
+    view = await hl.logView(env);
+  }
+  await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);
+}
+
 /* ---------- לחצנים ---------- */
 
 async function onCallback(env, cq, ctx, origin) {
@@ -242,6 +316,10 @@ async function onCallback(env, cq, ctx, origin) {
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
 
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
+  if (/^hg?:/.test(data)) return onHealth(env, cq, user, now);
+  if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {
+    return Promise.all([answer('ההגדרות מנוהלות על ידי אמתי וריקי'), edit(env, msg, v.adminOnly)]);
+  }
 
   let view = null;
   let toast = '';
