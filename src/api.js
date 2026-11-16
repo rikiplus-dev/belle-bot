@@ -126,10 +126,16 @@ export async function handleApi(request, env, ctx) {
 
   const auth = request.headers.get('authorization') || '';
   const initData = auth.startsWith('tma ') ? auth.slice(4) : '';
-  const tgUser = await verifyInitData(initData, env.BOT_TOKEN);
-  if (!tgUser) return json({ error: 'unauthorized' }, 401);
-  const user = await db.getUser(env, tgUser.id);
-  if (!user) return json({ error: 'not_registered' }, 403);
+  let user;
+  if (auth.startsWith('web ')) {
+    user = await db.userByWebToken(env, auth.slice(4).trim());
+    if (!user) return json({ error: 'unauthorized' }, 401);
+  } else {
+    const tgUser = await verifyInitData(initData, env.BOT_TOKEN);
+    if (!tgUser) return json({ error: 'unauthorized' }, 401);
+    user = await db.getUser(env, tgUser.id);
+    if (!user) return json({ error: 'not_registered' }, 403);
+  }
 
   const now = Date.now();
   const path = url.pathname;

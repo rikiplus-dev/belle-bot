@@ -867,6 +867,28 @@ try {
   assert.equal((await api(1002, 'POST', '/api/food', { q: 'קרמבו' })).json.items.length, 0);
   ok('לוח בקרה: נתוני בל ובדיקת מזון');
 
+  /* קישור אישי בלי טלגרם */
+  take();
+  await post(msg(1001, '/weblink שולי'));
+  c = take();
+  const wl = (c.find((x) => x.method === 'sendMessage' && /\/w\/[a-f0-9]{64}/.test(x.text)) || { text: '' }).text;
+  const tok = (wl.match(/\/w\/([a-f0-9]{64})/) || [])[1];
+  assert.ok(tok, 'נוצר קישור אישי');
+  const wapi = (t, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: 'web ' + t, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) }));
+  assert.equal((await wapi('0'.repeat(64), 'GET', '/api/state')).status, 401);
+  const ws = await wapi(tok, 'GET', '/api/state');
+  assert.equal(ws.status, 200);
+  assert.equal(ws.json.me.member, 'shuli');
+  const wlog = await wapi(tok, 'POST', '/api/log', { kind: 'pee_out' });
+  assert.equal(wlog.status, 200);
+  assert.ok((await fetch(`${BASE}/w/${tok}`)).status === 200, 'הדף מוגש מהקישור');
+  assert.equal((await fetch(`${BASE}/w/${'a'.repeat(64)}`)).status, 200);
+  await post(msg(1001, '/weblink שולי'));
+  take();
+  assert.equal((await wapi(tok, 'GET', '/api/state')).status, 401, 'קישור ישן בוטל');
+  assert.equal((await api(1004, 'GET', '/api/state')).status, 403, 'משתמש רגיל לא מושפע');
+  ok('קישור אישי: יצירה, שימוש, ביטול');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

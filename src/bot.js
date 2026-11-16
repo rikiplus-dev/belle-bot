@@ -4,7 +4,7 @@ import * as act from './actions.js';
 import * as v from './views.js';
 import { tgSafe, esc, tgDocument } from './telegram.js';
 import { broadcast, announceWalkStart, announceWalkEnd } from './notify.js';
-import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
+import { DOG, MEMBER_BY_ID, MEMBERS, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
 import * as wz from './wizards.js';
 import { lookup } from './foods.js';
@@ -109,6 +109,15 @@ async function onText(env, msg, ctx, origin) {
         return plain(env, chat.id, link
           ? `🔗 <b>קישור הזמנה</b>\nשולחים לבן בית חדש. הלחיצה פותחת את הבוט ומדלגת על הקלדת הקוד.\n\n${esc(link)}\n\n<i>הקישור כולל את קוד המשפחה, לכן שלחו אותו רק לבני הבית.</i>`
           : 'לא הצלחתי ליצור קישור כרגע. אפשר לשלוח לבן הבית את שם הבוט ואת קוד המשפחה.');
+      }
+      case 'weblink': {
+        if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
+        const arg = (cmd.args || '').trim();
+        const idx = MEMBERS.findIndex((m) => m.id === arg.toLowerCase() || m.name === arg);
+        if (idx < 0) return plain(env, chat.id, '🔗 <b>קישור ללוח בקרה בלי טלגרם</b>\nשלחו: <code>/weblink שולי</code>\n(שמות: ' + MEMBERS.map((m) => esc(m.name)).join(', ') + ')');
+        const m = MEMBERS[idx];
+        const token = await db.createWebToken(env, m.id, db.webUserId(idx), now);
+        return plain(env, chat.id, `🔗 <b>קישור אישי ל${esc(m.name)}</b>\nפותחים בדפדפן בטלפון ושומרים למסך הבית. משם אפשר לתעד טיולים, פיפי וקקי ולראות הכול.\n\n${esc(`${origin}/w/${token}`)}\n\n<i>הקישור אישי: מי שמחזיק אותו פועל בשם ${esc(m.name)}. שליחה חוזרת של הפקודה יוצרת קישור חדש ומבטלת את הישן.</i>`);
       }
       case 'bell':
         await db.clearPending(env, from.id);
@@ -332,7 +341,7 @@ async function onRegister(env, cq, ctx, origin) {
   }
   // מנהל חדש, או שם שכבר תפוס על ידי חשבון אחר: צריך אישור של מנהל קיים
   const users = await db.listUsers(env);
-  const taken = users.some((u) => u.member === member && u.tg_id !== from.id);
+  const taken = users.some((u) => u.member === member && u.tg_id !== from.id && u.tg_id > 0);
   const adminExists = users.some((u) => isAdmin(u));
   if (taken || (isAdmin({ member }) && adminExists)) {
     const approvers = users.filter((u) => isAdmin(u) && u.chat_id && u.tg_id !== from.id);

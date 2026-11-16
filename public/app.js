@@ -4,6 +4,9 @@
 
   var tgApp = window.Telegram && window.Telegram.WebApp;
   var initData = (tgApp && tgApp.initData) || '';
+  var wm = location.pathname.match(/^\/w\/([a-f0-9]{64})/);
+  var webToken = wm ? wm[1] : '';
+  var authHeader = webToken ? 'web ' + webToken : 'tma ' + initData;
   if (tgApp) {
     try {
       tgApp.ready();
@@ -89,7 +92,7 @@
   function call(method, path, body) {
     return fetch(path, {
       method: method,
-      headers: { authorization: 'tma ' + initData, 'content-type': 'application/json' },
+      headers: { authorization: authHeader, 'content-type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { return { status: r.status, json: j }; });
@@ -560,7 +563,7 @@
     $('avatarImg').src = PHOTOS[pi];
   });
 
-  if (!initData) {
+  if (!initData && !webToken) {
     showNote('לוח הבקרה נפתח מתוך הבוט', 'פתחו את בלבוט בטלגרם ולחצו על "📊 לוח בקרה".');
   } else {
     load();

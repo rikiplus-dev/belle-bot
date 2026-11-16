@@ -385,3 +385,26 @@ export const healthByTitle = (env, title) => q(env, 'SELECT * FROM health_log WH
 export const allHealthDone = async (env) => (await q(env, 'SELECT * FROM health_log WHERE done=1 ORDER BY at ASC, id ASC').all()).results;
 export const eventsBetween = async (env, from, to) =>
   (await q(env, 'SELECT * FROM events WHERE ts>=? AND ts<? ORDER BY ts ASC', from, to).all()).results;
+
+/* ---------- כניסה בלי טלגרם (קישור אישי) ---------- */
+
+const sha256hex = async (t) =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+
+// מזהה שלילי קבוע לכל בן בית, כדי שלא יתנגש במזהי טלגרם אמיתיים
+export const webUserId = (idx) => -(100 + idx);
+
+export async function createWebToken(env, member, tgId, now) {
+  const token = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  await q(env, 'DELETE FROM web_tokens WHERE member=?', member).run();
+  await q(env, 'INSERT INTO web_tokens(hash,member,created_at) VALUES(?,?,?)', await sha256hex(token), member, now).run();
+  await upsertUser(env, tgId, member, null, now);
+  return token;
+}
+
+export async function userByWebToken(env, token) {
+  if (!/^[a-f0-9]{64}$/.test(token || '')) return null;
+  const row = await q(env, 'SELECT member FROM web_tokens WHERE hash=?', await sha256hex(token)).first();
+  if (!row) return null;
+  return q(env, 'SELECT * FROM users WHERE member=? AND tg_id<0', row.member).first();
+}

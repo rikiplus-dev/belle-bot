@@ -38,6 +38,15 @@ export default {
       }
     }
 
+    // קישור אישי ללוח הבקרה: /w/<אסימון> מגיש את אותו דף, והאסימון נקרא מהכתובת
+    if (/^\/w\/[a-f0-9]{64}\/?$/.test(url.pathname)) {
+      const res = await env.ASSETS.fetch(new Request(url.origin + '/', { headers: request.headers }));
+      const h = new Headers(res.headers);
+      h.set('cache-control', 'no-store');
+      h.set('referrer-policy', 'no-referrer');
+      return new Response(res.body, { status: res.status, headers: h });
+    }
+
     return env.ASSETS.fetch(request);
   },
 
