@@ -221,6 +221,19 @@ export const reminderSent = async (env, key) => !!(await q(env, 'SELECT 1 x FROM
 export const markReminder = (env, key, now) =>
   q(env, 'INSERT OR IGNORE INTO reminders(key,sent_at) VALUES(?,?)', key, now).run();
 
+// תופס תזכורת באופן אטומי: true רק למי שהצליח לתפוס, כך שהרצות חופפות לא שולחות פעמיים
+export const claimReminder = async (env, key, now) =>
+  (await q(env, 'INSERT OR IGNORE INTO reminders(key,sent_at) VALUES(?,?)', key, now).run()).meta.changes === 1;
+export const unclaimReminder = (env, key) => q(env, 'DELETE FROM reminders WHERE key=?', key).run();
+
+// עדכון טלגרם: true אם זו הפעם הראשונה שרואים אותו
+export const claimUpdate = async (env, updateId, now) =>
+  (await q(env, 'INSERT OR IGNORE INTO processed_updates(update_id,ts) VALUES(?,?)', updateId, now).run()).meta.changes === 1;
+export const pruneUpdates = (env, before) => q(env, 'DELETE FROM processed_updates WHERE ts<?', before).run();
+
+// צ'אט שנחסם או נמחק: מפסיקים לשלוח אליו
+export const dropChat = (env, chatId) => q(env, 'UPDATE users SET chat_id=NULL WHERE chat_id=?', chatId).run();
+
 export const pruneReminders = (env, before) => q(env, 'DELETE FROM reminders WHERE sent_at<?', before).run();
 
 export const maxOutPee = async (env) => (await q(env, "SELECT MAX(ts) t FROM events WHERE kind='pee_out'").first())?.t || 0;

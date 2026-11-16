@@ -169,10 +169,10 @@ export const medReminderMarkup = (med, day, time) => ({
 
 async function sendToAdmins(env, text, markup) {
   const users = (await db.listUsers(env)).filter((u) => isAdmin(u) && u.chat_id);
-  await Promise.all(
+  const sent = await Promise.all(
     users.map((u) => tgSafe(env, 'sendMessage', { chat_id: u.chat_id, text, parse_mode: 'HTML', ...(markup ? { reply_markup: markup } : {}) })),
   );
-  return users.length;
+  return sent.filter(Boolean).length;
 }
 
 export async function healthCron(env, now) {
@@ -191,8 +191,11 @@ export async function healthCron(env, now) {
       if (first && now - s.ts < 30 * 60000) stage = 1;
       else if (!first && now - s.ts >= 30 * 60000 && !(await db.reminderSent(env, k2))) stage = 2;
       if (!stage) continue;
-      await db.markReminder(env, stage === 1 ? k1 : k2, now);
-      out.meds += await sendToAdmins(env, medReminderText(med, s.time, stage === 2), medReminderMarkup(med, s.day, s.time));
+      const key = stage === 1 ? k1 : k2;
+      if (!(await db.claimReminder(env, key, now))) continue;
+      const n = await sendToAdmins(env, medReminderText(med, s.time, stage === 2), medReminderMarkup(med, s.day, s.time));
+      if (!n) await db.unclaimReminder(env, key); // לא נשלח לאף אחד: ננסה שוב בהרצה הבאה
+      out.meds += n;
     }
   }
 
@@ -204,13 +207,14 @@ export async function healthCron(env, now) {
       const stage = n < -30 ? null : n < 0 ? 'late' : n === 0 ? '0' : '7';
       if (!stage) continue;
       const key = `hdue:${h.id}:${h.next_due}:${stage}`;
-      if (await db.reminderSent(env, key)) continue;
-      await db.markReminder(env, key, now);
+      if (!(await db.claimReminder(env, key, now))) continue;
       const k = HEALTH_KINDS[h.kind] || HEALTH_KINDS.other;
       const when = stage === 'late' ? `⚠️ המועד עבר לפני ${-n} ימים` : stage === '0' ? 'המועד הוא <b>היום</b>' : `בעוד ${n} ימים (${fmtDate(h.next_due, tz)})`;
-      out.due += await sendToAdmins(env, `${k.emoji} <b>${esc(h.title)}</b> ל${esc(DOG)}\n${when}`, {
+      const sent = await sendToAdmins(env, `${k.emoji} <b>${esc(h.title)}</b> ל${esc(DOG)}\n${when}`, {
         inline_keyboard: [[btn('✅ בוצע', `hd:${h.id}`), btn('⏳ בעוד שבוע', `hs:${h.id}`)], [btn('📅 הוספה ליומן', `hc:${h.id}`)]],
       });
+      if (!sent) await db.unclaimReminder(env, key);
+      out.due += sent;
     }
   }
   return out;

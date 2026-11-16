@@ -7,7 +7,7 @@ import { tgSafe } from './telegram.js';
 export async function broadcast(env, text, { flag = 'notify', exceptTgId = null, markup = null, members = null } = {}) {
   const users = await db.listUsers(env);
   const targets = users.filter((u) => u[flag] && u.chat_id && u.tg_id !== exceptTgId && (!members || members.includes(u.member)));
-  await Promise.all(
+  const sent = await Promise.all(
     targets.map((u) =>
       tgSafe(env, 'sendMessage', {
         chat_id: u.chat_id,
@@ -17,5 +17,5 @@ export async function broadcast(env, text, { flag = 'notify', exceptTgId = null,
       }),
     ),
   );
-  return targets.length;
+  return sent.filter(Boolean).length;
 }

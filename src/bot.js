@@ -218,6 +218,27 @@ async function register(env, msg, text, cmd, now) {
   return send(env, chatId, v.memberPicker());
 }
 
+// מנהל מאשר או דוחה בקשת הרשמה
+async function onApproval(env, cq, user, origin) {
+  const [, decision, tgId, member] = cq.data.split(':');
+  const answer = (text, alert = false) => tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, text, show_alert: alert });
+  if (!isAdmin(user)) return answer('רק מנהלים יכולים לאשר', true);
+  if (!MEMBER_BY_ID[member]) return answer('משהו השתבש', true);
+  const reqId = num(tgId);
+  const who = MEMBER_BY_ID[member].name;
+  if (decision === 'ok') {
+    await db.upsertUser(env, reqId, member, reqId, Date.now());
+    const nu = await db.getUser(env, reqId);
+    await tgSafe(env, 'sendMessage', { chat_id: reqId, text: `🎉 אושרתם בתור <b>${esc(who)}</b>. ברוכים הבאים!`, parse_mode: 'HTML' });
+    await send(env, reqId, await v.panel(env, nu, { isPrivate: true, origin, notice: 'אפשר להתחיל. /help מסביר הכול' }));
+    await answer('אושר');
+    return edit(env, cq.message, { text: `✅ ${esc(MEMBER_BY_ID[user.member].name)} אישר/ה את ההרשמה בתור ${esc(who)}.`, reply_markup: { inline_keyboard: [] } });
+  }
+  await tgSafe(env, 'sendMessage', { chat_id: reqId, text: 'הבקשה להירשם לא אושרה. אפשר לשלוח /start ולבחור שם אחר.' });
+  await answer('נדחה');
+  return edit(env, cq.message, { text: `🚫 ההרשמה בתור ${esc(who)} נדחתה.`, reply_markup: { inline_keyboard: [] } });
+}
+
 async function onRegister(env, cq, ctx, origin) {
   const from = cq.from;
   const msg = cq.message;
@@ -227,6 +248,29 @@ async function onRegister(env, cq, ctx, origin) {
   const member = cq.data.slice(4);
   if (!p || p.state !== 'await_member' || !MEMBER_BY_ID[member]) {
     return answer('שלחו /start כדי להתחיל מחדש', true);
+  }
+  // מנהל חדש, או שם שכבר תפוס על ידי חשבון אחר: צריך אישור של מנהל קיים
+  const users = await db.listUsers(env);
+  const taken = users.some((u) => u.member === member && u.tg_id !== from.id);
+  const adminExists = users.some((u) => isAdmin(u));
+  if (taken || (isAdmin({ member }) && adminExists)) {
+    const approvers = users.filter((u) => isAdmin(u) && u.chat_id && u.tg_id !== from.id);
+    if (approvers.length) {
+      await db.clearPending(env, from.id);
+      const who = MEMBER_BY_ID[member].name;
+      await Promise.all(
+        approvers.map((a) =>
+          tgSafe(env, 'sendMessage', {
+            chat_id: a.chat_id,
+            text: `🙋 ${esc(from.first_name || 'מישהו')} מבקש/ת להירשם בתור <b>${esc(who)}</b>.\nזה אתם?`,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [[{ text: '✅ אישור', callback_data: `rg:ok:${from.id}:${member}` }, { text: '🚫 דחייה', callback_data: `rg:no:${from.id}:${member}` }]] },
+          }),
+        ),
+      );
+      await edit(env, msg, { text: `⏳ ביקשתם להירשם בתור <b>${esc(MEMBER_BY_ID[member].name)}</b>. שלחתי בקשת אישור למנהלים. כשיאשרו, תקבלו הודעה.`, reply_markup: { inline_keyboard: [] } });
+      return answer('נשלחה בקשה למנהלים');
+    }
   }
   await db.upsertUser(env, from.id, member, msg.chat.id, now);
   await db.clearPending(env, from.id);
@@ -448,6 +492,7 @@ async function onHealth(env, cq, user, now) {
     const today = startOfDay(now, tz);
     let target = row.id;
     if (!row.done) await db.markHealthDone(env, row.id, today);
+    else if (row.at === today) target = row.id; // לחיצה כפולה: לא יוצרים רשומה נוספת
     else target = await db.addHealth(env, { kind: row.kind, title: row.title, at: today, notes: null, due: null, member: user.member, done: 1 }, now);
     const draft = { m: 'return', id: target, k: row.kind, t: row.title, d: today };
     return Promise.all([answer('✅ נרשם'), edit(env, msg, await advanceWizard(env, user, draft, now))]);
@@ -564,6 +609,7 @@ async function onCallback(env, cq, ctx, origin) {
   const opts = { isPrivate, origin };
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
 
+  if (data.startsWith('rg:')) return onApproval(env, cq, user, origin);
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
   if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);

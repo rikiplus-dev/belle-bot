@@ -171,6 +171,46 @@ try {
   assert.match(toastOf(take()), /נרשמים/);
   ok('לחצן ממשתמש לא רשום נחסם');
 
+  /* משלוח חוזר של אותו עדכון לא מטופל פעמיים */
+  take();
+  const dup = { update_id: 777001, ...msg(1001, '/help') };
+  await post(dup);
+  assert.ok(find(take(), 'sendMessage', /בלבוט/), 'עדכון ראשון מטופל');
+  await post(dup);
+  assert.equal(take().length, 0, 'אותו update_id שוב: מתעלמים');
+  ok('כפילות של עדכון טלגרם נחסמת');
+
+  /* הרשמה על שם תפוס או כמנהל דורשת אישור של מנהל */
+  await post(msg(1009, '/start'));
+  await post(msg(1009, 'bell123'));
+  take();
+  await post(cb(1009, 'reg:riki'));
+  c = take();
+  const ask = c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /מבקש/.test(x.text));
+  assert.ok(ask, 'המנהלת מקבלת בקשת אישור');
+  assert.ok(find(c, 'editMessageText', /ביקשתם/), 'המבקש מקבל הסבר');
+  await post(cb(1002, 'rg:ok:1009:riki')); // שולי אינה מנהלת
+  assert.match(toastOf(take()), /רק מנהלים/);
+  await post(cb(1001, 'rg:no:1009:riki'));
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1009 && /לא אושרה/.test(x.text)), 'דחייה מגיעה למבקש');
+  await post(msg(1009, '/start'));
+  await post(msg(1009, 'bell123'));
+  take();
+  await post(cb(1009, 'reg:riki'));
+  take();
+  await post(cb(1001, 'rg:ok:1009:riki'));
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1009 && /אושרתם/.test(x.text)), 'אישור מגיע למבקש');
+  // שם שלא תפוס ואינו מנהל: נרשמים מיד
+  await post(msg(1010, '/start'));
+  await post(msg(1010, 'bell123'));
+  take();
+  await post(cb(1010, 'reg:beri'));
+  assert.ok(find(take(), 'sendMessage', /בל/), 'שם פנוי נרשם מיד');
+  wr(['d1', 'execute', 'DB', '--local', '--persist-to', state, '--command', 'DELETE FROM users WHERE tg_id IN (1009,1010)']);
+  ok('הרשמה על שם תפוס או כמנהל מחכה לאישור מנהל');
+
   /* טיול כמפגש */
   await post(cb(1001, 'a:pee_out'));
   assert.match(toastOf(take()), /אין טיול פעיל/);

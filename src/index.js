@@ -1,6 +1,8 @@
 import { handleUpdate } from './bot.js';
 import { handleApi } from './api.js';
 import { runCron } from './cron.js';
+import { claimUpdate } from './db.js';
+import { alertAdmin } from './telegram.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -13,10 +15,13 @@ export default {
       }
       try {
         const update = await request.json();
+        // משלוח חוזר של אותו עדכון מטלגרם לא מטופל פעמיים
+        if (update.update_id != null && !(await claimUpdate(env, update.update_id, Date.now()))) return new Response('ok');
         await handleUpdate(env, update, ctx, url.origin);
       } catch (e) {
         // תמיד עונים 200, אחרת טלגרם שולח שוב ושוב את אותה הודעה
         console.error('update failed', e && e.stack ? e.stack : e);
+        ctx.waitUntil(alertAdmin(env, 'עדכון מטלגרם', e));
       }
       return new Response('ok');
     }
@@ -38,7 +43,10 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
-      runCron(env).catch((e) => console.error('cron failed', e && e.stack ? e.stack : e)),
+      runCron(env).catch((e) => {
+        console.error('cron failed', e && e.stack ? e.stack : e);
+        return alertAdmin(env, 'קרון', e);
+      }),
     );
   },
 };

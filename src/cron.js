@@ -2,13 +2,24 @@
 import * as db from './db.js';
 import { DOG, DEFAULTS, MEMBER_BY_ID } from './config.js';
 import { broadcast } from './notify.js';
-import { tgSafe, esc } from './telegram.js';
+import { tgSafe, esc, alertAdmin } from './telegram.js';
 import { parts, startOfWeek, dur } from './time.js';
 import { weeklyText } from './views.js';
 import { healthCron } from './health.js';
 import { onDutyMembers } from './duty.js';
 
 const MIN = 60000;
+
+// כל שלב בקרון רץ לעצמו: תקלה באחד לא עוצרת את השאר
+async function step(env, name, fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    console.error(`cron step ${name} failed`, e && e.stack ? e.stack : e);
+    await alertAdmin(env, `קרון: ${name}`, e);
+    return undefined;
+  }
+}
 
 export async function runCron(env, now = Date.now()) {
   const tz = env.TZ || 'Asia/Jerusalem';
@@ -17,7 +28,7 @@ export async function runCron(env, now = Date.now()) {
   const out = { closed: 0, mealNudge: 0, intervalNudge: 0, weekly: 0 };
 
   // 1. טיול שנשכח פתוח נסגר לבד
-  const stale = await db.staleWalk(env, now - DEFAULTS.walkMaxMin * MIN);
+  const stale = await step(env, 'סגירת טיול', () => db.staleWalk(env, now - DEFAULTS.walkMaxMin * MIN));
   if (stale) {
     const lastEv = await db.lastWalkEventTs(env, stale.id);
     const endAt = Math.min(now, Math.max(lastEv, stale.started_at) + 15 * MIN);
@@ -36,17 +47,21 @@ export async function runCron(env, now = Date.now()) {
   // 2. תקציר שבועי: יום ראשון בבוקר, פעם אחת
   if (p.wd === 0 && p.h >= 7 && p.h < 12) {
     const key = `weekly:${startOfWeek(now, tz)}`;
-    if (!(await db.reminderSent(env, key))) {
-      await db.markReminder(env, key, now);
-      out.weekly = await broadcast(env, await weeklyText(env, now), { flag: 'notify' });
+    if (await db.claimReminder(env, key, now)) {
+      const n = await step(env, 'תקציר שבועי', async () => broadcast(env, await weeklyText(env, now), { flag: 'notify' }));
+      if (!n) await db.unclaimReminder(env, key);
+      out.weekly = n || 0;
     }
   }
 
-  const hc = await healthCron(env, now);
+  const hc = (await step(env, 'בריאות', () => healthCron(env, now))) || { meds: 0, due: 0 };
   out.meds = hc.meds;
   out.due = hc.due;
 
-  if (p.h === 3) await db.pruneReminders(env, now - 14 * 86400000);
+  if (p.h === 3) {
+    await db.pruneReminders(env, now - 14 * 86400000);
+    await db.pruneUpdates(env, now - 2 * 86400000);
+  }
   if (quiet) return out;
   const t = await db.thresholds(env);
   // בשעות אחריות רק מי שבאחריות מקבל תזכורות אילוף. אם הוא עוד לא מחובר לבוט, כולם מקבלים.
@@ -61,13 +76,13 @@ export async function runCron(env, now = Date.now()) {
   const meal = await db.lastMeal(env, now - 90 * MIN, now - t.mealNudgeMin * MIN);
   if (meal) {
     const key = `meal:${meal.id}`;
-    if (!(await db.reminderSent(env, key)) && !(await db.walkStartedSince(env, meal.ts))) {
-      await db.markReminder(env, key, now);
+    if (!(await db.reminderSent(env, key)) && !(await db.walkStartedSince(env, meal.ts)) && (await db.claimReminder(env, key, now))) {
       out.mealNudge = await broadcast(
         env,
         `🍽 ${DOG} אכלה לפני ${dur(now - meal.ts)}.\nזה זמן טוב להוציא אותה לפיפי וקקי.`,
         { flag: 'notify', markup: startMarkup(), members: nudgeTo },
       );
+      if (!out.mealNudge) await db.unclaimReminder(env, key);
     }
   }
 
@@ -77,13 +92,13 @@ export async function runCron(env, now = Date.now()) {
     const n = Math.floor((now - anchor) / (t.intervalMin * MIN));
     if (n >= 1 && n <= 3) {
       const key = `interval:${anchor}:${n}`;
-      if (!(await db.reminderSent(env, key))) {
-        await db.markReminder(env, key, now);
+      if (await db.claimReminder(env, key, now)) {
         out.intervalNudge = await broadcast(
           env,
           `⏰ עברו ${dur(now - anchor)} מאז הפעם האחרונה ש${DOG} יצאה.\nכדאי לצאת איתה.`,
           { flag: 'notify', markup: startMarkup(), members: nudgeTo },
         );
+        if (!out.intervalNudge) await db.unclaimReminder(env, key);
       }
     }
   }
