@@ -8,7 +8,7 @@ import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.j
 import * as hl from './health.js';
 import { parseDutyLine } from './duty.js';
 import { CHEERS } from './config.js';
-import { minutesAgoFromClock } from './time.js';
+import { minutesAgoFromClock, startOfDay } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
 
 const MAX_ATTEMPTS = 5;
@@ -121,22 +121,28 @@ async function onText(env, msg, ctx, origin) {
     return send(env, chat.id, await v.settingsView(env, user));
   }
 
-  // הוספת תרופה או אירוע רפואי בהודעה אחת
-  if (pend && (pend.state === 'medadd' || pend.state.startsWith('hadd:')) && isAdmin(user)) {
+  // שאלון אירוע רפואי: שלב שמחכה להקלדה
+  if (pend && pend.state.startsWith('hw:') && isAdmin(user)) {
+    const d = await hl.getDraft(env, from.id);
+    if (!d || now - d.updated_at > 30 * 60000) {
+      await db.clearPending(env, from.id);
+    } else if (d.a) {
+      const tz = env.TZ || 'Asia/Jerusalem';
+      const r = hl.applyText(d, text, now, tz);
+      if (r.error) return plain(env, chat.id, `${esc(r.error)}`);
+      return send(env, chat.id, await advanceWizard(env, user, r.draft, now));
+    }
+  }
+
+  // הוספת תרופה בהודעה אחת
+  if (pend && pend.state === 'medadd' && isAdmin(user)) {
     if (now - pend.updated_at > 15 * 60000) {
       await db.clearPending(env, from.id);
     } else {
-      const medMode = pend.state === 'medadd';
-      const r = medMode
-        ? await hl.addMedFromText(env, user.member, text, now)
-        : await hl.addHealthFromText(env, user.member, pend.state.slice(5), text, now);
+      const r = await hl.addMedFromText(env, user.member, text, now);
       if (!r.ok) return plain(env, chat.id, `${esc(r.error)}\nנסו שוב, או שלחו /health כדי לצאת.`);
       await db.clearPending(env, from.id);
-      const tz = env.TZ || 'Asia/Jerusalem';
-      const note = medMode
-        ? `💊 נוספה תרופה: ${r.med.name} · ${r.med.dose} · ${r.med.times.join(' ')}`
-        : `${HEALTH_KINDS[r.entry.kind].emoji} נוסף ליומן: ${r.entry.title}${r.entry.due ? ' · לחזור ב-' + hl.fmtDate(r.entry.due, tz) : ''}`;
-      return send(env, chat.id, await hl.healthHome(env, now, note));
+      return send(env, chat.id, await hl.healthHome(env, now, `💊 נוספה תרופה: ${r.med.name} · ${r.med.dose} · ${r.med.times.join(' ')}`));
     }
   }
 
@@ -333,14 +339,29 @@ async function onLate(env, cq, user, ctx, opts, now) {
 
 /* ---------- בריאות ---------- */
 
+// ממשיך את השאלון: שומר, או מציג את השלב הבא
+async function advanceWizard(env, user, draft, now) {
+  const tz = env.TZ || 'Asia/Jerusalem';
+  const view = hl.wizardView(draft, tz);
+  if (view) {
+    await hl.saveDraft(env, user.tg_id, draft, now);
+    return view;
+  }
+  await db.clearPending(env, user.tg_id);
+  const item = await hl.saveDraftResult(env, draft, user.member, now);
+  if (!item) return hl.healthHome(env, now, 'הרשומה לא נמצאה');
+  return hl.savedView(env, item, draft.m === 'future');
+}
+
 async function onHealth(env, cq, user, now) {
   const msg = cq.message;
   const answer = (text, alert = false) =>
     tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
   if (!isAdmin(user)) return answer('הבריאות מנוהלת על ידי אמתי וריקי', true);
   const parts = cq.data.split(':');
+  const tz = env.TZ || 'Asia/Jerusalem';
 
-  // לחיצה על "ניתנה" או "דילגנו" בתזכורת
+  // לחיצה על "ניתנה" או "דילגנו" בתזכורת תרופה
   if (parts[0] === 'hg') {
     const [, medId, day, time, st] = parts;
     const r = await hl.giveDose(env, num(medId), day, time, st === 'g' ? 'given' : 'skipped', user.member, now);
@@ -353,6 +374,64 @@ async function onHealth(env, cq, user, now) {
     return;
   }
 
+  // שאלון אירוע רפואי
+  if (parts[0] === 'hw') {
+    const act2 = parts[1];
+    if (act2 === 'cancel') {
+      await db.clearPending(env, cq.from.id);
+      return Promise.all([answer('בוטל'), edit(env, msg, await hl.healthHome(env, now))]);
+    }
+    if (act2 === 'new') {
+      if (parts[2] !== 'past' && parts[2] !== 'future') return answer('לא מוכר', true);
+      return Promise.all([answer(), edit(env, msg, await advanceWizard(env, user, hl.startDraft(parts[2]), now))]);
+    }
+    const d = await hl.getDraft(env, cq.from.id);
+    if (!d || now - d.updated_at > 30 * 60000) {
+      await db.clearPending(env, cq.from.id);
+      return Promise.all([answer('השאלון פג תוקף, מתחילים מחדש', true), edit(env, msg, await hl.healthHome(env, now))]);
+    }
+    const r = hl.applyChoice(d, act2, parts[2], now, tz);
+    if (r.error) return answer(r.error, true);
+    return Promise.all([answer(), edit(env, msg, await advanceWizard(env, user, r.draft, now))]);
+  }
+
+  // "בוצע" על מועד: מתעדים שנעשה ושואלים מתי לחזור
+  if (parts[0] === 'hd') {
+    const row = await db.getHealth(env, num(parts[1]));
+    if (!row) return answer('לא נמצא', true);
+    const today = startOfDay(now, tz);
+    let target = row.id;
+    if (!row.done) await db.markHealthDone(env, row.id, today);
+    else target = await db.addHealth(env, { kind: row.kind, title: row.title, at: today, notes: null, due: null, member: user.member, done: 1 }, now);
+    const draft = { m: 'return', id: target, k: row.kind, t: row.title, d: today };
+    return Promise.all([answer('✅ נרשם'), edit(env, msg, await advanceWizard(env, user, draft, now))]);
+  }
+
+  if (parts[0] === 'hs') {
+    const row = await db.getHealth(env, num(parts[1]));
+    if (!row || !row.next_due) return answer('לא נמצא', true);
+    const base = Math.max(row.next_due, startOfDay(now, tz));
+    const due = startOfDay(base + 7 * 86400000 + 12 * 3600000, tz);
+    await db.setHealthDue(env, row.id, due);
+    await answer(`⏳ נדחה ל-${hl.fmtDate(due, tz)}`);
+    return edit(env, msg, { text: `⏳ <b>${esc(row.title)}</b> נדחה ל-${hl.fmtDate(due, tz)}`, reply_markup: { inline_keyboard: [[{ text: '📅 מועדים קרובים', callback_data: 'h:due' }]] } });
+  }
+
+  if (parts[0] === 'hx') {
+    const row = await db.getHealth(env, num(parts[1]));
+    if (!row) return answer('כבר נמחק');
+    if (!row.done) await db.deleteHealth(env, row.id);
+    else await db.setHealthDue(env, row.id, null);
+    await answer(`התזכורת בוטלה: ${row.title}`);
+    return edit(env, msg, await hl.dueView(env, now));
+  }
+
+  if (parts[0] === 'hc') {
+    const row = await db.getHealth(env, num(parts[1]));
+    const ok = await hl.sendCalendar(env, msg.chat.id, row);
+    return answer(ok ? '📅 שלחתי קישור וקובץ ליומן' : 'אין מועד להוסיף ליומן', !ok);
+  }
+
   await db.clearPending(env, cq.from.id);
   const act2 = parts[1];
   let view;
@@ -360,12 +439,8 @@ async function onHealth(env, cq, user, now) {
   if (act2 === 'home') view = await hl.healthHome(env, now);
   else if (act2 === 'meds') view = await hl.medsView(env, now);
   else if (act2 === 'log') view = await hl.logView(env);
-  else if (act2 === 'add') view = hl.kindPicker();
-  else if (act2 === 'k') {
-    if (!HEALTH_KINDS[parts[2]]) return answer('לא מוכר', true);
-    await db.setPending(env, cq.from.id, `hadd:${parts[2]}`, 0, now);
-    view = hl.eventPrompt(parts[2]);
-  } else if (act2 === 'medadd') {
+  else if (act2 === 'due') view = await hl.dueView(env, now);
+  else if (act2 === 'medadd') {
     await db.setPending(env, cq.from.id, 'medadd', 0, now);
     view = hl.medPrompt();
   } else if (act2 === 'stop') {
@@ -400,7 +475,7 @@ async function onCallback(env, cq, ctx, origin) {
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
 
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
-  if (/^hg?:/.test(data)) return onHealth(env, cq, user, now);
+  if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);
   if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {
     return Promise.all([answer('ההגדרות מנוהלות על ידי אמתי וריקי'), edit(env, msg, v.adminOnly)]);

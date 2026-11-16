@@ -438,31 +438,110 @@ try {
   assert.match(find(take(), 'editMessageText').text, /אמוקסיצילין/);
   ok('תרופות: הוספה, תזכורת בשעה, "ניתנה" ללא כפילות והרשאות');
 
-  /* יומן רפואי ומועדי חזרה */
-  await post(cb(1001, 'h:add'));
-  take();
-  await post(cb(1001, 'h:k:vaccine'));
-  assert.match(find(take(), 'editMessageText').text, /חיסון/);
-  await post(msg(1001, 'כלבת | 12.11 | שנה'));
-  c = take();
-  assert.match(find(c, 'sendMessage').text, /נוסף ליומן: כלבת/);
-  await post(cb(1001, 'h:log'));
-  const logTxt = find(take(), 'editMessageText').text;
-  assert.match(logTxt, /כלבת/);
-  assert.match(logTxt, /לחזור/);
-  await post(cb(1001, 'h:undo'));
-  assert.match(toastOf(take()), /נמחק: כלבת/);
-  const tNow = Date.now();
-  sql(`INSERT INTO health_log(kind,title,at,next_due,member,created_at) VALUES('vaccine','משושה',${tNow - 20 * 86400000},${tNow},'riki',${tNow})`);
+  /* שאלון אירוע רפואי: תזכורת עתידית בלחצנים */
   const hr = Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }));
+  const editText = () => (find(take(), 'editMessageText') || {}).text || '';
+  await post(cb(1001, 'hw:new:future'));
+  assert.match(editText(), /על מה להזכיר/);
+  await post(cb(1001, 'hw:k:vaccine'));
+  assert.match(editText(), /איזה אירוע/);
+  await post(cb(1001, 'hw:t:0'));
+  assert.match(editText(), /מתי צריך לעשות/);
+  await post(cb(1001, 'hw:r:1m'));
+  assert.match(editText(), /הערה/);
+  await post(cb(1001, 'hw:n:skip'));
+  c = take();
+  const saved = find(c, 'editMessageText');
+  assert.match(saved.text, /נשמר/);
+  assert.match(saved.text, /כלבת/);
+  const savedKb = JSON.stringify(saved.reply_markup);
+  assert.ok(savedKb.includes('calendar.google.com/calendar/render'), 'קישור ליומן גוגל');
+  assert.match(savedKb, /hc:\d+/);
+  await post(cb(1001, 'h:due'));
+  const dueView = find(take(), 'editMessageText');
+  assert.match(dueView.text, /כלבת/);
+  const hcData = dueView.reply_markup.inline_keyboard.flat().find((b) => /^hc:/.test(b.callback_data)).callback_data;
+  await post(cb(1001, hcData));
+  c = take();
+  assert.ok(find(c, 'sendDocument'), 'קובץ ics נשלח');
+  assert.ok(c.find((x) => x.method === 'sendMessage' && JSON.stringify(x.reply_markup || {}).includes('calendar.google.com')), 'הודעה עם קישור ליומן');
+  ok('תזכורת עתידית בלחצנים, כולל הוספה ליומן בטלפון');
+
+  /* אירוע שהיה: בחירות עם תאריך והערה בהקלדה */
+  await post(cb(1001, 'hw:new:past'));
+  take();
+  await post(cb(1001, 'hw:k:other'));
+  assert.match(editText(), /כתבו את שם האירוע/);
+  await post(msg(1001, 'ביקור אצל ד"ר כהן'));
+  assert.match(find(take(), 'sendMessage').text, /מתי זה היה/);
+  await post(cb(1001, 'hw:d:x'));
+  take();
+  await post(msg(1001, '31.12.2099'));
+  assert.match(find(take(), 'sendMessage').text, /עתידי/);
+  const y = new Date(Date.now() - 86400000).toLocaleDateString('en-GB', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric' }).replace('/', '.');
+  await post(msg(1001, y));
+  assert.match(find(take(), 'sendMessage').text, /מתי לחזור/);
+  await post(cb(1001, 'hw:r:3m'));
+  take();
+  await post(cb(1001, 'hw:n:x'));
+  take();
+  await post(msg(1001, 'הכול תקין'));
+  assert.match(find(take(), 'sendMessage').text, /נשמר/);
+  await post(cb(1001, 'h:log'));
+  const logTxt = editText();
+  assert.match(logTxt, /ביקור אצל ד"ר כהן/);
+  assert.match(logTxt, /הכול תקין/);
+  assert.match(logTxt, /לחזור/);
+  ok('אירוע שהיה: שאלון עם תאריך, חזרה והערה');
+
+  /* בוצע: התזכורת הופכת לאירוע ושואלת מתי לחזור */
+  const tNow = Date.now();
+  sql(`UPDATE health_log SET next_due=${tNow} WHERE title='כלבת' AND done=0`);
   if (hr >= 9 && hr < 20) {
+    take();
     await runCron();
     await new Promise((r2) => setTimeout(r2, 1200));
-    assert.ok(take().find((x) => x.method === 'sendMessage' && /משושה/.test(x.text || '') && /היום/.test(x.text)), 'תזכורת ביום החיסון');
-    ok('יומן רפואי: הוספה, הצגה, מחיקה ותזכורת ביום המועד');
-  } else {
-    ok('יומן רפואי: הוספה, הצגה ומחיקה (תזכורת מועד נבדקת רק בשעות היום)');
+    const dueMsg = take().find((x) => x.method === 'sendMessage' && /כלבת/.test(x.text || '') && /היום/.test(x.text));
+    assert.ok(dueMsg, 'תזכורת ביום המועד');
+    assert.ok(JSON.stringify(dueMsg.reply_markup).includes('hd:'), 'כפתור בוצע בהתראה');
   }
+  await post(cb(1001, 'h:due'));
+  const dv = find(take(), 'editMessageText');
+  const doneBtn = dv.reply_markup.inline_keyboard.flat().find((b) => /^hd:/.test(b.callback_data) && /כלבת/.test(b.text)).callback_data;
+  await post(cb(1001, doneBtn));
+  assert.match(editText(), /מתי לחזור/);
+  await post(cb(1001, 'hw:r:1y'));
+  assert.match(editText(), /נשמר/);
+  await post(cb(1001, 'h:log'));
+  assert.match(editText(), /כלבת/);
+  await post(cb(1001, 'h:due'));
+  assert.match(editText(), /כלבת/);
+  ok('"בוצע" על מועד: נרשם ביומן ונקבע מועד חזרה חדש');
+
+  // ביטול תזכורת עתידית
+  await post(cb(1001, 'hw:new:future'));
+  take();
+  await post(cb(1001, 'hw:k:deworm'));
+  take();
+  await post(cb(1001, 'hw:t:0'));
+  take();
+  await post(cb(1001, 'hw:r:1w'));
+  take();
+  await post(cb(1001, 'hw:n:skip'));
+  take();
+  await post(cb(1001, 'h:due'));
+  const dv2 = find(take(), 'editMessageText');
+  const xBtn = dv2.reply_markup.inline_keyboard.flat().find((b) => /^hx:/.test(b.callback_data) && true);
+  assert.match(dv2.text, /תילוע/);
+  const row = dv2.reply_markup.inline_keyboard.find((r) => r.some((b) => /תילוע/.test(b.text)));
+  await post(cb(1001, row.find((b) => /^hx:/.test(b.callback_data)).callback_data));
+  assert.match(toastOf(take()), /בוטלה/);
+  assert.ok(xBtn);
+  ok('ביטול תזכורת עתידית');
+
+  /* מחיקת הרשומה האחרונה ביומן */
+  await post(cb(1001, 'h:undo'));
+  assert.match(toastOf(take()), /נמחק|אין מה/);
 
   /* עידוד וסטיקרים */
   await post(cb(1002, 'c:home'));

@@ -237,7 +237,7 @@ export const lastWalkEventTs = async (env, walkId) =>
 export async function addHealth(env, h, now) {
   const r = await q(
     env,
-    'INSERT INTO health_log(kind,title,at,notes,next_due,member,created_at) VALUES(?,?,?,?,?,?,?)',
+    'INSERT INTO health_log(kind,title,at,notes,next_due,member,created_at,done) VALUES(?,?,?,?,?,?,?,?)',
     h.kind,
     h.title,
     h.at,
@@ -245,12 +245,19 @@ export async function addHealth(env, h, now) {
     h.due ?? null,
     h.member,
     now,
+    h.done === 0 ? 0 : 1,
   ).run();
   return r.meta.last_row_id;
 }
 
 export const recentHealth = async (env, limit = 12) =>
-  (await q(env, 'SELECT * FROM health_log ORDER BY at DESC, id DESC LIMIT ?', limit).all()).results;
+  (await q(env, 'SELECT * FROM health_log WHERE done=1 ORDER BY at DESC, id DESC LIMIT ?', limit).all()).results;
+
+export const getHealth = (env, id) => q(env, 'SELECT * FROM health_log WHERE id=?', id).first();
+export const setHealthDue = (env, id, due) => q(env, 'UPDATE health_log SET next_due=? WHERE id=?', due, id).run();
+// תזכורת עתידית שבוצעה: הופכת לאירוע שהיה, בלי מועד חזרה (בוחרים אותו אחר כך)
+export const markHealthDone = (env, id, at) => q(env, 'UPDATE health_log SET done=1, at=?, next_due=NULL WHERE id=?', at, id).run();
+export const deleteHealth = (env, id) => q(env, 'DELETE FROM health_log WHERE id=?', id).run();
 
 // מוחק את הרשומה האחרונה שבן הבית הזה הוסיף (עד שבוע אחורה)
 export async function deleteLastHealth(env, member, now) {

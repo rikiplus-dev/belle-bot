@@ -33,3 +33,19 @@ export async function tgSafe(env, method, body) {
 
 export const esc = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// שליחת קובץ (טקסט) כמסמך
+export async function tgDocument(env, chatId, filename, content, mime = 'text/plain', caption = '') {
+  try {
+    const base = env.TELEGRAM_API || 'https://api.telegram.org';
+    const form = new FormData();
+    form.set('chat_id', String(chatId));
+    if (caption) form.set('caption', caption);
+    form.set('document', new Blob([content], { type: mime }), filename);
+    const res = await fetch(`${base}/bot${env.BOT_TOKEN}/sendDocument`, { method: 'POST', body: form });
+    return res.ok;
+  } catch (e) {
+    console.warn(e.message);
+    return false;
+  }
+}

@@ -143,3 +143,19 @@ test('walk messages', async () => {
   assert.match(walkStartedText('beri'), /בל יצאה לטיול עם בערי/);
   assert.match(walkEndedText({ walker: 'shuli', took: '20 דק׳', counts: { pee_out: 0, poop_out: 1 } }), /שולי הוציאה את בל לטיול · 20 דק׳\nבל עשתה קקי, לא פיפי/);
 });
+
+import { icsFile, googleCalendarUrl } from '../src/calendar.js';
+test('calendar', async () => {
+  const tz = 'Asia/Jerusalem';
+  const due = Date.UTC(2026, 11, 20, 8, 0); // 20.12.2026
+  const ics = icsFile({ title: 'כלבת, בל', dueTs: due, notes: 'שורה\nשנייה', uid: 'x1' }, tz, Date.UTC(2026, 10, 16, 8, 0));
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261220\r\n/);
+  assert.match(ics, /DTEND;VALUE=DATE:20261221\r\n/);
+  assert.match(ics, /SUMMARY:כלבת\\, בל\r\n/);
+  assert.match(ics, /DESCRIPTION:שורה\\nשנייה\r\n/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+  const url = googleCalendarUrl({ title: 'כלבת', dueTs: due, notes: '' }, tz);
+  assert.match(url, /^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE/);
+  assert.match(url, /dates=20261220%2F20261221/);
+});
