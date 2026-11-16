@@ -5,11 +5,11 @@ export const DOG = 'בל';
 // הערה: ה-id הוא מזהה פנימי ולא משתנה. את השם אפשר לשנות בחופשיות.
 // g: 'f' נקבה, 'm' זכר. בלי g הבוט מנסח בלשון ניטרלית ("בל יצאה לטיול עם ...")
 export const MEMBERS = [
-  { id: 'amti', name: 'אמתי' },
+  { id: 'amti', name: 'אמתי', g: 'm' },
   { id: 'riki', name: 'ריקי', g: 'f' },
   { id: 'shuli', name: 'שולי', g: 'f' },
-  { id: 'sharoli', name: 'שרולי' },
-  { id: 'beri', name: 'בערי' },
+  { id: 'sharoli', name: 'שרולי', g: 'm' },
+  { id: 'beri', name: 'בערי', g: 'm' },
 ];
 
 export const MEMBER_BY_ID = Object.fromEntries(MEMBERS.map((m) => [m.id, m]));

@@ -140,7 +140,7 @@ test('walk messages', async () => {
   assert.equal(outcomeText({ pee_out: 2, poop_out: 1 }), 'עשתה פיפי ×2 וקקי');
   assert.equal(outcomeText({ pee_out: 0, poop_out: 0 }), 'בלי פיפי וקקי הפעם');
   assert.equal(walkStartedText('shuli'), '🚶 שולי הוציאה את בל לטיול');
-  assert.match(walkStartedText('beri'), /בל יצאה לטיול עם בערי/);
+  assert.equal(walkStartedText('beri'), '🚶 בערי הוציא את בל לטיול');
   assert.match(walkEndedText({ walker: 'shuli', took: '20 דק׳', counts: { pee_out: 0, poop_out: 1 } }), /שולי הוציאה את בל לטיול · 20 דק׳\nבל עשתה קקי, לא פיפי/);
 });
 
