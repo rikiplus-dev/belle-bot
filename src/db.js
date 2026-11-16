@@ -408,3 +408,17 @@ export async function userByWebToken(env, token) {
   if (!row) return null;
   return q(env, 'SELECT * FROM users WHERE member=? AND tg_id<0', row.member).first();
 }
+
+/* ---------- תיעוד בשם בן בית אחר (מנהלים) ---------- */
+
+export async function getActAs(env, tgId, now) {
+  const r = await q(env, 'SELECT value FROM settings WHERE key=?', 'actas:' + tgId).first();
+  if (!r) return null;
+  const [member, until] = String(r.value).split('|');
+  return Number(until) > now ? member : null;
+}
+
+export const setActAs = (env, tgId, member, until) =>
+  member
+    ? q(env, 'INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', 'actas:' + tgId, member + '|' + until).run()
+    : q(env, 'DELETE FROM settings WHERE key=?', 'actas:' + tgId).run();

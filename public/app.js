@@ -6,6 +6,16 @@
   var initData = (tgApp && tgApp.initData) || '';
   var wm = location.pathname.match(/^\/w\/([a-f0-9]{64})/);
   var webToken = wm ? wm[1] : '';
+  // מנהלים: תיעוד בשם בן בית אחר (נסגר לבד אחרי 20 דקות בלי פעולה)
+  var actAs = '';
+  try {
+    var saved = JSON.parse(localStorage.getItem('actAs') || 'null');
+    if (saved && saved.until > Date.now()) actAs = saved.id;
+  } catch (e) {}
+  function setActAs(id) {
+    actAs = id || '';
+    try { localStorage.setItem('actAs', JSON.stringify({ id: actAs, until: Date.now() + 20 * 60000 })); } catch (e) {}
+  }
   var authHeader = webToken ? 'web ' + webToken : 'tma ' + initData;
   if (tgApp) {
     try {
@@ -90,6 +100,8 @@
 
   /* ---------- רשת ---------- */
   function call(method, path, body) {
+    if (actAs && method === 'GET') path += (path.indexOf('?') < 0 ? '?' : '&') + 'as=' + actAs;
+    if (actAs && method === 'POST' && body && typeof body === 'object' && !body.as) body = Object.assign({ as: actAs }, body);
     return fetch(path, {
       method: method,
       headers: { authorization: authHeader, 'content-type': 'application/json' },
@@ -189,8 +201,26 @@
   function render() {
     $('date').textContent = new Date(nowEst()).toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: S.tz });
     var me = $('me');
-    me.textContent = 'מתעד/ת בתור ' + S.me.name;
+    me.replaceChildren();
+    me.className = 'me' + (S.me.acting ? ' acting' : '');
+    me.appendChild(document.createTextNode((S.me.acting ? 'מתעדים בשם ' : 'מתעד/ת בתור ') + S.me.name));
     me.hidden = false;
+    if (S.me.admin) {
+      var sw = el('div', 'actas');
+      sw.appendChild(el('span', 'actaslbl', 'לתעד בשם:'));
+      S.members.forEach(function (m) {
+        var on = m.id === S.me.member;
+        var b = el('button', 'actbtn' + (on ? ' on' : ''), m.id === S.me.real ? 'אני' : m.name);
+        b.type = 'button';
+        b.addEventListener('click', function () {
+          // לחיצה על השם שכבר נבחר, או על שמכם, חוזרת למצב רגיל
+          setActAs(on || m.id === S.me.real ? '' : m.id);
+          load();
+        });
+        sw.appendChild(b);
+      });
+      me.appendChild(sw);
+    }
 
     // טיול
     var wc = $('walkCard');

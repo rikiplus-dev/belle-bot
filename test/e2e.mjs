@@ -889,6 +889,31 @@ try {
   assert.equal((await api(1004, 'GET', '/api/state')).status, 403, 'משתמש רגיל לא מושפע');
   ok('קישור אישי: יצירה, שימוש, ביטול');
 
+  /* תיעוד בשם בן בית אחר */
+  take();
+  await post(msg(1001, '/as שרולי'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /מתעדים בשם שרולי/) || find(c, 'sendMessage', /שרולי/), 'מצב תיעוד בשם הופעל');
+  await post(msg(1001, 'בל אכלה'));
+  take();
+  const ev = sqlq("SELECT member, kind FROM events ORDER BY id DESC LIMIT 1");
+  assert.ok(JSON.stringify(ev).includes('sharoli'), 'האירוע נרשם על בן הבית שנבחר: ' + String(ev).slice(0, 300));
+  let as1 = await api(1001, 'GET', '/api/state?as=beri');
+  assert.equal(as1.json.me.member, 'beri');
+  assert.ok(as1.json.me.admin && as1.json.me.acting && as1.json.me.real);
+  const as2 = await api(1001, 'POST', '/api/log', { kind: 'meal', as: 'beri' });
+  assert.equal(as2.status, 200);
+  assert.ok(JSON.stringify(sqlq("SELECT member FROM events ORDER BY id DESC LIMIT 1")).includes('beri'), 'API: נרשם על בערי');
+  // לא מנהל לא יכול
+  const as3 = await api(1004, 'GET', '/api/state?as=beri');
+  assert.notEqual(as3.json.me && as3.json.me.member, 'beri');
+  await post(msg(1001, '/as אני'));
+  take();
+  await post(msg(1001, 'בל אכלה'));
+  take();
+  assert.ok(!JSON.stringify(sqlq("SELECT member FROM events ORDER BY id DESC LIMIT 1")).includes('sharoli'), 'חזרה לעצמי');
+  ok('תיעוד בשם בן בית אחר: בוט ולוח בקרה');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

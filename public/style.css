@@ -185,3 +185,10 @@ h1{margin:0; font-family:var(--font-display); font-weight:400; font-size:2.5rem;
 .fres.no{border-color:var(--danger)} .fres.mid{border-color:var(--meal)} .fres.ok{border-color:var(--good)}
 .fres b{display:block; margin-bottom:2px}
 .wchart{width:100%; height:80px}
+
+.me.acting{color:var(--ink); font-weight:700}
+.actas{display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px}
+.actaslbl{font-size:.8rem; color:var(--muted)}
+.actbtn{appearance:none; font:inherit; font-size:.9rem; font-weight:500; padding:6px 14px; min-height:36px; border-radius:999px; cursor:pointer;
+  border:1px solid color-mix(in srgb,var(--ink) 25%,transparent); background:var(--surface); color:var(--ink)}
+.actbtn.on{background:var(--walk); border-color:var(--walk); color:#fff; font-weight:700}

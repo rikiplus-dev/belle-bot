@@ -4,7 +4,7 @@ import * as act from './actions.js';
 import * as v from './views.js';
 import { tgSafe, esc, tgDocument } from './telegram.js';
 import { broadcast, announceWalkStart, announceWalkEnd } from './notify.js';
-import { DOG, MEMBER_BY_ID, MEMBERS, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
+import { ADMINS, ACT_AS_MS, DOG, MEMBER_BY_ID, MEMBERS, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
 import * as wz from './wizards.js';
 import { lookup } from './foods.js';
@@ -54,6 +54,30 @@ export async function handleUpdate(env, update, ctx, origin) {
   if (update.message && update.message.sticker) return onSticker(env, update.message);
 }
 
+/* ---------- מנהל מתעד בשם בן בית אחר ---------- */
+
+// מחזיר את המשתמש כפי שהוא מתעד כרגע: אותו חשבון, אבל על שם בן הבית שנבחר
+async function withActAs(env, user, now) {
+  if (!ADMINS.includes(user.member)) return user;
+  const m = await db.getActAs(env, user.tg_id, now);
+  if (!m || !MEMBER_BY_ID[m] || m === user.member) return user;
+  await db.setActAs(env, user.tg_id, m, now + ACT_AS_MS);
+  return { ...user, member: m, admin_real: true, acting: true };
+}
+
+async function onActAs(env, user, who, now) {
+  // who: מזהה בן בית, 'me', או '' להצגת הבחירה
+  if (!ADMINS.includes(user.member)) return { view: v.adminOnly, toast: '' };
+  if (!who) return { view: v.actAsPicker(user, await db.getActAs(env, user.tg_id, now)), toast: '' };
+  if (who === 'me') {
+    await db.setActAs(env, user.tg_id, null, 0);
+    return { view: await v.panel(env, user, { isPrivate: true, notice: 'חזרתם לתעד על שמכם' }), toast: 'חזרתם לעצמכם' };
+  }
+  await db.setActAs(env, user.tg_id, who, now + ACT_AS_MS);
+  const eff = { ...user, member: who, admin_real: true, acting: true };
+  return { view: await v.panel(env, eff, { isPrivate: true, notice: `מתעדים בשם ${MEMBER_BY_ID[who].name}` }), toast: `מתעדים בשם ${MEMBER_BY_ID[who].name}` };
+}
+
 /* ---------- הודעות טקסט ופקודות ---------- */
 
 async function onText(env, msg, ctx, origin) {
@@ -65,7 +89,7 @@ async function onText(env, msg, ctx, origin) {
   const cmd = parseCommand(text);
   const now = Date.now();
 
-  const user = await db.getUser(env, from.id);
+  let user = await db.getUser(env, from.id);
   if (!user) {
     if (!isPrivate) {
       if (cmd) await plain(env, chat.id, `כדי להצטרף פותחים איתי צ׳אט פרטי ושולחים /start 🐶`);
@@ -74,6 +98,14 @@ async function onText(env, msg, ctx, origin) {
     return register(env, msg, text, cmd, now);
   }
   if (isPrivate) await db.touchChat(env, from.id, chat.id);
+
+  if (cmd && cmd.name === 'as') {
+    const arg = (cmd.args || '').trim();
+    const mm = MEMBERS.find((m) => m.id === arg.toLowerCase() || m.name === arg);
+    const r = await onActAs(env, user, mm ? mm.id : /^(אני|me)$/i.test(arg) ? 'me' : '', now);
+    return send(env, chat.id, r.view);
+  }
+  user = await withActAs(env, user, now);
   const opts = { isPrivate, origin };
 
   if (cmd) {
@@ -701,13 +733,19 @@ async function onCallback(env, cq, ctx, origin) {
   if (!msg) return answer();
   if (data.startsWith('reg:')) return onRegister(env, cq, ctx, origin);
 
-  const user = await db.getUser(env, from.id);
+  let user = await db.getUser(env, from.id);
   if (!user) return answer('קודם נרשמים: פותחים איתי צ׳אט פרטי ושולחים /start 🐶', true);
   const isPrivate = msg.chat.type === 'private';
   if (isPrivate) await db.touchChat(env, from.id, msg.chat.id);
   const now = Date.now();
   const opts = { isPrivate, origin };
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
+
+  if (data === 'm:as' || data.startsWith('as:')) {
+    const r = await onActAs(env, user, data === 'm:as' ? '' : data.slice(3), now);
+    return Promise.all([answer(r.toast), edit(env, msg, r.view)]);
+  }
+  user = await withActAs(env, user, now);
 
   if (data.startsWith('rg:')) return onApproval(env, cq, user, origin);
   if (data.startsWith('t:')) {

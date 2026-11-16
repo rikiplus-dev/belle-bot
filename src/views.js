@@ -20,6 +20,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   const [sum, home, walk] = await Promise.all([db.todaySummary(env, now, tz), db.lastHome(env), db.activeWalk(env)]);
 
   const lines = [`🐶 <b>${esc(DOG)}</b> · ${dateLine(now, tz)}`];
+  if (user.acting) lines.push(`📝 <b>מתעדים בשם ${esc(name(user.member))}</b>`);
   if (notice) lines.push(`<i>${esc(notice)}</i>`);
   lines.push('');
   lines.push(`<b>היום</b>  🌳 בחוץ <b>${sum.out}</b>  ·  🏠 בבית <b>${sum.home}</b>  ·  🍽 <b>${sum.meal}</b>`);
@@ -47,6 +48,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
     const what = undo.type === 'walk' ? '🚶 טיול' : `${KINDS[undo.kind].emoji} ${KINDS[undo.kind].label}`;
     rows.push([btn(`↩️ בטל: ${what} ${hhmm(undo.ts, tz)}`, 'm:undo')]);
   }
+  if (isAdmin(user)) rows.push([btn(user.acting ? `👥 מתעדים בשם ${name(user.member)} · החלפה` : '👥 לתעד בשם מישהו אחר', 'm:as')]);
   rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('➕ עוד', 'm:more')]);
   if (isPrivate && origin) rows.push([{ text: '📊 לוח בקרה', web_app: { url: origin } }]);
 
@@ -54,6 +56,18 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
 }
 
 const back = [[btn('⬅️ חזרה', 'm:menu')]];
+
+// בחירת בן בית שבשמו מתעדים (מנהלים בלבד)
+export function actAsPicker(real, acting) {
+  const rows = [];
+  const others = MEMBERS.filter((m) => m.id !== real.member);
+  for (let i = 0; i < others.length; i += 2) rows.push(others.slice(i, i + 2).map((m) => btn(m.name, 'as:' + m.id)));
+  rows.push([btn(`🙋 חזרה לעצמי (${name(real.member)})`, 'as:me')]);
+  return {
+    text: `👥 <b>לתעד בשם מישהו אחר</b>\nילדים בלי טלפון? בוחרים שם, וכל מה שתתעדו יירשם עליו (כולל כוכבים).\n${acting ? `כרגע: <b>${esc(name(acting))}</b>\n` : ''}<i>המצב נסגר לבד אחרי 20 דקות בלי פעולה.</i>`,
+    reply_markup: { inline_keyboard: rows },
+  };
+}
 
 // תפריט "עוד": כל מה שלא נדרש בכל יציאה
 export function moreMenu(user) {

@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import * as act from './actions.js';
 import { verifyInitData } from './auth.js';
-import { DOG, MEMBERS, MEMBER_BY_ID, KINDS } from './config.js';
+import { DOG, MEMBERS, MEMBER_BY_ID, KINDS, ADMINS } from './config.js';
 import { startOfDay, startOfWeek, shortDay } from './time.js';
 import { announceWalkStart, announceWalkEnd } from './notify.js';
 import { isAdmin } from './config.js';
@@ -106,7 +106,7 @@ export async function buildState(env, user, now = Date.now()) {
     tz,
     dog: DOG,
     bell,
-    me: { member: user.member, name: MEMBER_BY_ID[user.member]?.name || '' },
+    me: { member: user.member, name: MEMBER_BY_ID[user.member]?.name || '', admin: isAdmin(user), acting: !!user.acting, real: user.real_member || user.member },
     members: MEMBERS,
     kinds: Object.fromEntries(Object.entries(KINDS).map(([k, v]) => [k, { label: v.label, out: !!v.out, accident: !!v.accident, star: v.star }])),
     active_walk: activeWalk,
@@ -141,17 +141,25 @@ export async function handleApi(request, env, ctx) {
   const path = url.pathname;
   let result = null;
 
+  // מנהלים יכולים לתעד בשם בן בית אחר: ?as=<id> או בגוף הבקשה
+  let asId = url.searchParams.get('as') || '';
+  let body = {};
+  if (request.method === 'POST') {
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    asId = body.as || asId;
+  }
+  if (asId && ADMINS.includes(user.member) && MEMBER_BY_ID[asId] && asId !== user.member) {
+    user = { ...user, real_member: user.member, member: asId, admin_real: true, acting: true };
+  }
+
   if (request.method === 'GET' && path === '/api/state') {
     return json(await buildState(env, user, now));
   }
   if (request.method !== 'POST') return json({ error: 'not_found' }, 404);
-
-  let body = {};
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
 
   // בדיקת מזון
   if (path === '/api/food') {

@@ -53,7 +53,9 @@ export const MAX_LATE_MIN = 24 * 60; // עד יממה אחורה
 
 // בריאות והגדרות: רק מי שברשימה רואה ומעדכן
 export const ADMINS = ['amti', 'riki'];
-export const isAdmin = (user) => !!user && ADMINS.includes(user.member);
+// admin_real: מנהל שמתעד כרגע בשם בן בית אחר, ההרשאות נשארות שלו
+export const isAdmin = (user) => !!user && (!!user.admin_real || ADMINS.includes(user.member));
+export const ACT_AS_MS = 20 * 60000;
 
 export const HEALTH_KINDS = {
   vaccine: { emoji: '💉', label: 'חיסון' },
