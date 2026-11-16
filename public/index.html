@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>בלבוט</title>
+  <link rel="icon" href="/assets/bell-photo-1.jpg">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Secular+One&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="top">
+      <button type="button" class="avatar" id="avatar" aria-label="בל. לחיצה מחליפה תמונה"><img id="avatarImg" src="/assets/bell-photo-1.jpg" alt="בל"></button>
+      <div class="topText">
+        <div class="date" id="date"></div>
+        <h1>בל</h1>
+        <div class="me" id="me" hidden></div>
+      </div>
+    </header>
+
+    <div class="note" id="note" role="status" hidden></div>
+    <div id="content" hidden>
+      <section id="walkCard" class="walkcard"></section>
+
+      <section class="group" id="homeGroup" style="--c:var(--home)">
+        <div class="ghead"><h2>קרה בבית</h2></div>
+        <p class="gcap">קורה, היא עוד קטנה. מתעדים כדי למצוא את השעות הקריטיות.</p>
+        <div class="tiles two" id="homeTiles"></div>
+      </section>
+
+      <section class="group">
+        <div class="ghead"><h2>אוכל</h2></div>
+        <div class="tiles two" id="careTiles"></div>
+      </section>
+
+      <section class="train" aria-label="אילוף היום">
+        <h2>אילוף היום</h2>
+        <div class="nums">
+          <div class="num out"><b id="n-out">0</b><span>בחוץ</span></div>
+          <div class="num in"><b id="n-home">0</b><span>בבית</span></div>
+        </div>
+        <div class="bar" aria-hidden="true"><i class="o" id="bar-o"></i><i class="h" id="bar-h"></i></div>
+        <p class="pct" id="pct"></p>
+        <div class="streak" id="streak"></div>
+      </section>
+
+      <section class="board" aria-label="שבעה ימים">
+        <h2>שבעת הימים האחרונים</h2>
+        <p class="cap">כל עמודה היא יום. ירוק בחוץ, כתום בבית. המטרה: הירוק עולה והכתום יורד.</p>
+        <div id="chart"></div>
+      </section>
+
+      <section class="board" aria-label="כוכבים השבוע">
+        <h2><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.500l2.900 6 6.600.9-4.800 4.600 1.200 6.500L12 17.300 6.100 20.500l1.200-6.500L2.500 9.400l6.600-.9z"/></svg>כוכבים השבוע</h2>
+        <p class="cap">כוכב על טיול שהסתיים, פיפי או קקי בחוץ, והכנת אוכל. השבוע מתחיל ביום ראשון.</p>
+        <div id="board"></div>
+      </section>
+
+      <section class="timeline" aria-label="יומן">
+        <h2>היומן של המשפחה</h2>
+        <div id="feed"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="toastwrap"><div class="toast" id="toast" role="status" hidden><p id="toastMsg"></p></div></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "bellebot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "בלבוט: בוט טלגרם משפחתי למעקב אילוף של בל",
+  "scripts": {
+    "dev": "wrangler dev --local --persist-to .wrangler/state",
+    "db:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler/state",
+    "test": "node --test test/logic.test.mjs",
+    "e2e": "node test/e2e.mjs",
+    "deploy": "node scripts/ci-deploy.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.150.0"
+  }
+}

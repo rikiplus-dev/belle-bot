@@ -1,0 +1,6 @@
+# העתיקי לקובץ בשם .dev.vars להרצה מקומית (הקובץ לא עולה לגיטהאב)
+BOT_TOKEN=123456:TEST-TOKEN
+WEBHOOK_SECRET=local-secret
+FAMILY_CODE=bell123
+# רק לבדיקות מקומיות מול שרת טלגרם מדומה:
+# TELEGRAM_API=http://127.0.0.1:9999
