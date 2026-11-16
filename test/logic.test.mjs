@@ -107,3 +107,39 @@ test('health parsing', async () => {
   assert.equal(noDate.due, null);
   assert.ok(parseHealthLine('x | 12.11.26 | 01.01.20', now, tz).error);
 });
+
+import { parseDays, parseRange, parseDutyLine, onDutyMembers } from '../src/duty.js';
+import { walkStartedText, walkEndedText, outcomeText } from '../src/views.js';
+test('duty hours', async () => {
+  assert.deepEqual(parseDays('א-ה'), [0, 1, 2, 3, 4]);
+  assert.deepEqual(parseDays('ה-א'), [0, 4, 5, 6]);
+  assert.deepEqual(parseDays('א,ג'), [0, 2]);
+  assert.deepEqual(parseDays('סופש'), [5, 6]);
+  assert.equal(parseDays('כל יום').length, 7);
+  assert.equal(parseDays('בלה'), null);
+  assert.deepEqual(parseRange('14:00-18:30'), [840, 1110]);
+  assert.equal(parseRange('14:00-14:00'), null);
+  assert.equal(parseRange('25:00-18:00'), null);
+  assert.equal(parseDutyLine('בלה | א | 10:00-11:00').error !== undefined, true);
+  const r = parseDutyLine('שולי | א-ה | 14:00-18:00');
+  assert.deepEqual([r.member, r.start, r.end], ['shuli', 840, 1080]);
+  const tz = 'Asia/Jerusalem';
+  // יום שני 16.11.2026, 15:00 שעון ישראל
+  const mon15 = Date.UTC(2026, 10, 16, 13, 0);
+  const rows = [
+    { member: 'shuli', days: '0,1,2,3,4', start_min: 840, end_min: 1080 },
+    { member: 'riki', days: '0,1,2,3,4,5,6', start_min: 1200, end_min: 420 },
+  ];
+  assert.deepEqual(onDutyMembers(rows, mon15, tz), ['shuli']);
+  assert.deepEqual(onDutyMembers(rows, Date.UTC(2026, 10, 16, 18, 30), tz), ['riki']); // 20:30
+  assert.deepEqual(onDutyMembers(rows, Date.UTC(2026, 10, 17, 3, 0), tz), ['riki']); // 05:00 למחרת
+  assert.deepEqual(onDutyMembers(rows, Date.UTC(2026, 10, 16, 10, 0), tz), []); // 12:00
+});
+test('walk messages', async () => {
+  assert.equal(outcomeText({ pee_out: 0, poop_out: 1 }), 'עשתה קקי, לא פיפי');
+  assert.equal(outcomeText({ pee_out: 2, poop_out: 1 }), 'עשתה פיפי ×2 וקקי');
+  assert.equal(outcomeText({ pee_out: 0, poop_out: 0 }), 'בלי פיפי וקקי הפעם');
+  assert.equal(walkStartedText('shuli'), '🚶 שולי הוציאה את בל לטיול');
+  assert.match(walkStartedText('beri'), /בל יצאה לטיול עם בערי/);
+  assert.match(walkEndedText({ walker: 'shuli', took: '20 דק׳', counts: { pee_out: 0, poop_out: 1 } }), /שולי הוציאה את בל לטיול · 20 דק׳\nבל עשתה קקי, לא פיפי/);
+});

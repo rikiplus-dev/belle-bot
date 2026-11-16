@@ -198,7 +198,7 @@ try {
   c = take();
   assert.match(toastOf(c), /חזרנו/);
   assert.match(toastOf(c), /⭐ \+1/);
-  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1002 && /חזרה/.test(x.text)), 'שולי מקבלת סיכום');
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1002 && /ריקי הוציאה את בל לטיול/.test(x.text) && /בל עשתה/.test(x.text)), 'שולי מקבלת סיכום');
   ok('סיום טיול: סיכום, כוכב והודעה');
 
   /* בבית ואוכל */
@@ -273,7 +273,14 @@ try {
   const nowIL = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false });
   const quiet = Number(nowIL) >= 22 || Number(nowIL) < 7;
   const sql = (q2) => wr(['d1', 'execute', 'DB', '--local', '--persist-to', state, '--command', q2]);
-  const runCron = () => fetch(`${BASE}/__scheduled?cron=*/10+*+*+*+*`);
+  // חיבור שנשאר פתוח זמן רב נסגר לפעמים בצד השרת, אז מנסים פעם נוספת
+  const runCron = async () => {
+    try {
+      return await fetch(`${BASE}/__scheduled?cron=*/10+*+*+*+*`);
+    } catch {
+      return fetch(`${BASE}/__scheduled?cron=*/10+*+*+*+*`);
+    }
+  };
 
   // טיול ששכחו לסגור
   const t0 = Date.now() - 3 * 3600000;
@@ -457,9 +464,75 @@ try {
     ok('יומן רפואי: הוספה, הצגה ומחיקה (תזכורת מועד נבדקת רק בשעות היום)');
   }
 
+  /* עידוד וסטיקרים */
+  await post(cb(1002, 'c:home'));
+  assert.match(find(take(), 'editMessageText').text, /למי לשלוח/);
+  await post(cb(1002, 'c:to:riki'));
+  assert.match(find(take(), 'editMessageText').text, /עידוד לריקי/);
+  await post(msg(1002, 'את גדולה, תודה על הבוקר'));
+  c = take();
+  const cheerMsg = c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /שולי/.test(x.text));
+  assert.ok(cheerMsg && /את גדולה/.test(cheerMsg.text), 'ריקי מקבלת את ההודעה משולי');
+  await post(cb(1002, 'c:to:all'));
+  take();
+  await post({ message: { message_id: 7, from: { id: 1002 }, chat: { id: 1002, type: 'private' }, sticker: { file_id: 'STK-1' } } });
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendSticker' && x.chat_id === 1001 && x.sticker === 'STK-1'), 'סטיקר מועבר לריקי');
+  assert.ok(!c.find((x) => x.method === 'sendSticker' && x.chat_id === 1002), 'לא חוזר לשולח');
+  await post(cb(1002, 'c:p:riki:2'));
+  assert.ok(take().find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /אלופים/.test(x.text)));
+  await post({ message: { message_id: 8, from: { id: 1002 }, chat: { id: 1002, type: 'private' }, sticker: { file_id: 'STK-2' } } });
+  assert.match(find(take(), 'sendMessage').text, /עידוד/);
+  ok('עידוד: הודעה חופשית, הודעה מוכנה וסטיקר בין בני הבית');
+
+  /* הודעות טיול */
+  sql('DELETE FROM events');
+  sql('DELETE FROM walks');
+  take();
+  await post(cb(1002, 'a:walk_start'));
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /שולי הוציאה את בל לטיול/.test(x.text)), 'הודעת יציאה לכולם');
+  await post(cb(1002, 'a:poop_out'));
+  take();
+  await post(cb(1002, 'a:walk_end'));
+  c = take();
+  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /בל עשתה קקי, לא פיפי/.test(x.text)), 'הודעת סיכום עם פיפי וקקי');
+  ok('הודעות טיול לכולם: "שולי הוציאה את בל לטיול, עשתה קקי לא פיפי"');
+
+  /* שעות אחריות */
+  await post(cb(1002, 's:da'));
+  assert.match(toastOf(take()), /אמתי וריקי/);
+  await post(cb(1001, 's:da'));
+  assert.match(find(take(), 'editMessageText').text, /שעות אחריות/);
+  await post(msg(1001, 'מישהו | כל יום | 00:00-23:59'));
+  assert.match(find(take(), 'sendMessage').text, /לא מכירים/);
+  await post(msg(1001, 'שולי | כל יום | 00:00-23:59'));
+  assert.match(find(take(), 'sendMessage').text, /עכשיו באחריות: <b>שולי/);
+  ok('שעות אחריות: הוספה בהגדרות על ידי מנהלים בלבד');
+
+  if (!quiet) {
+    sql('DELETE FROM events');
+    sql('DELETE FROM walks');
+    sql('DELETE FROM reminders');
+    sql(`INSERT INTO events(ts,kind,member,walk_id,source) VALUES(${Date.now() - 45 * 60000}, 'meal', 'riki', NULL, 'bot')`);
+    take();
+    await runCron();
+    await new Promise((r2) => setTimeout(r2, 1500));
+    c = take();
+    const nudges = c.filter((x) => x.method === 'sendMessage' && /אכלה לפני/.test(x.text || ''));
+    assert.equal(nudges.length, 1, 'תזכורת אילוף רק למי שבאחריות');
+    assert.equal(nudges[0].chat_id, 1002);
+    sql('DELETE FROM duty');
+    sql('DELETE FROM reminders');
+    await runCron();
+    await new Promise((r2) => setTimeout(r2, 1500));
+    assert.equal(take().filter((x) => x.method === 'sendMessage' && /אכלה לפני/.test(x.text || '')).length, 2, 'בלי אחריות: כולם');
+    ok('בשעות אחריות רק התורן מקבל תזכורות, ובלי אחריות כולם');
+  }
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
-  console.error('\nנכשל:', e.message);
+  console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));
   console.error('--- לוג שרת ---\n' + serverLog.slice(-2500));
   process.exitCode = 1;
 } finally {

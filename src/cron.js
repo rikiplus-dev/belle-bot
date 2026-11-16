@@ -6,6 +6,7 @@ import { tgSafe, esc } from './telegram.js';
 import { parts, startOfWeek, dur } from './time.js';
 import { weeklyText } from './views.js';
 import { healthCron } from './health.js';
+import { onDutyMembers } from './duty.js';
 
 const MIN = 60000;
 
@@ -48,6 +49,11 @@ export async function runCron(env, now = Date.now()) {
   if (p.h === 3) await db.pruneReminders(env, now - 14 * 86400000);
   if (quiet) return out;
   const t = await db.thresholds(env);
+  // בשעות אחריות רק מי שבאחריות מקבל תזכורות אילוף. אם הוא עוד לא מחובר לבוט, כולם מקבלים.
+  const onDuty = onDutyMembers(await db.listDuty(env), now, tz);
+  const users = await db.listUsers(env);
+  const dutyReachable = onDuty.filter((m) => users.some((u) => u.member === m && u.chat_id));
+  const nudgeTo = dutyReachable.length ? dutyReachable : null;
   const open = await db.activeWalk(env);
   if (open) return out; // כבר בטיול
 
@@ -60,7 +66,7 @@ export async function runCron(env, now = Date.now()) {
       out.mealNudge = await broadcast(
         env,
         `🍽 ${DOG} אכלה לפני ${dur(now - meal.ts)}.\nזה זמן טוב להוציא אותה לפיפי וקקי.`,
-        { flag: 'notify', markup: startMarkup() },
+        { flag: 'notify', markup: startMarkup(), members: nudgeTo },
       );
     }
   }
@@ -76,7 +82,7 @@ export async function runCron(env, now = Date.now()) {
         out.intervalNudge = await broadcast(
           env,
           `⏰ עברו ${dur(now - anchor)} מאז הפעם האחרונה ש${DOG} יצאה.\nכדאי לצאת איתה.`,
-          { flag: 'notify', markup: startMarkup() },
+          { flag: 'notify', markup: startMarkup(), members: nudgeTo },
         );
       }
     }

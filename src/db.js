@@ -299,3 +299,12 @@ export async function recordDose(env, medId, slot, status, member, now) {
   const r = await q(env, 'INSERT OR IGNORE INTO med_doses(med_id,slot,status,at,member) VALUES(?,?,?,?,?)', medId, slot, status, now, member).run();
   return r.meta.changes > 0;
 }
+
+/* ---------- שעות אחריות ---------- */
+
+export const listDuty = async (env) => (await q(env, 'SELECT * FROM duty ORDER BY member, start_min').all()).results;
+export async function addDuty(env, d) {
+  const r = await q(env, 'INSERT INTO duty(member,days,start_min,end_min) VALUES(?,?,?,?)', d.member, d.days.join(','), d.start, d.end).run();
+  return r.meta.last_row_id;
+}
+export const deleteDuty = async (env, id) => (await q(env, 'DELETE FROM duty WHERE id=?', id).run()).meta.changes > 0;

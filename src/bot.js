@@ -6,6 +6,8 @@ import { tgSafe, esc } from './telegram.js';
 import { broadcast } from './notify.js';
 import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
+import { parseDutyLine } from './duty.js';
+import { CHEERS } from './config.js';
 import { minutesAgoFromClock } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
 
@@ -34,6 +36,7 @@ const plain = (env, chatId, text) => tgSafe(env, 'sendMessage', { chat_id: chatI
 export async function handleUpdate(env, update, ctx, origin) {
   if (update.callback_query) return onCallback(env, update.callback_query, ctx, origin);
   if (update.message && typeof update.message.text === 'string') return onText(env, update.message, ctx, origin);
+  if (update.message && update.message.sticker) return onSticker(env, update.message);
 }
 
 /* ---------- הודעות טקסט ופקודות ---------- */
@@ -68,6 +71,9 @@ async function onText(env, msg, ctx, origin) {
         if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id }));
         return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
       }
+      case 'cheer':
+        await db.clearPending(env, from.id);
+        return send(env, chat.id, v.cheerPick(user));
       case 'late':
         await db.clearPending(env, from.id);
         return send(env, chat.id, v.lateStart(user.member));
@@ -93,6 +99,27 @@ async function onText(env, msg, ctx, origin) {
   }
 
   const pend = await db.getPending(env, from.id);
+
+  // הודעה חופשית לעידוד
+  if (pend && pend.state.startsWith('cheer:')) {
+    if (now - pend.updated_at > 15 * 60000) {
+      await db.clearPending(env, from.id);
+    } else {
+      const to = pend.state.slice(6);
+      await db.clearPending(env, from.id);
+      const n = await sendCheer(env, user, to, { text: text.slice(0, 300) });
+      return send(env, chat.id, await v.panel(env, user, { ...opts, notice: n ? `💌 נשלח (${n})` : 'אף אחד מהנמענים לא מחובר לבוט עדיין' }));
+    }
+  }
+
+  // שעות אחריות חדשות (הגדרות, רק לאמתי וריקי)
+  if (pend && pend.state === 'dutyadd' && isAdmin(user)) {
+    const r = parseDutyLine(text);
+    if (r.error) return plain(env, chat.id, `${esc(r.error)}\nנסו שוב, או שלחו /settings כדי לצאת.`);
+    await db.addDuty(env, r);
+    await db.clearPending(env, from.id);
+    return send(env, chat.id, await v.settingsView(env, user));
+  }
 
   // הוספת תרופה או אירוע רפואי בהודעה אחת
   if (pend && (pend.state === 'medadd' || pend.state.startsWith('hadd:')) && isAdmin(user)) {
@@ -197,6 +224,63 @@ async function onRegister(env, cq, ctx, origin) {
   await edit(env, msg, { text: `🎉 נרשמתם בתור <b>${esc(MEMBER_BY_ID[member].name)}</b>. ברוכים הבאים לבלבוט!`, reply_markup: { inline_keyboard: [] } });
   await answer('נרשמתם בהצלחה');
   return send(env, msg.chat.id, await v.panel(env, user, { isPrivate: true, origin, notice: 'אפשר להתחיל. /help מסביר הכול' }));
+}
+
+/* ---------- עידוד וסטיקרים ---------- */
+
+// נמענים: בן בית אחד או כולם (חוץ מהשולח). מחזיר כמה קיבלו.
+async function sendCheer(env, user, to, { text = null, sticker = null }) {
+  const from = MEMBER_BY_ID[user.member].name;
+  const users = (await db.listUsers(env)).filter((u) => u.chat_id && u.member !== user.member && (to === 'all' || u.member === to));
+  await Promise.all(
+    users.map(async (u) => {
+      if (sticker) {
+        await tgSafe(env, 'sendMessage', { chat_id: u.chat_id, text: `💌 סטיקר מ<b>${esc(from)}</b>`, parse_mode: 'HTML' });
+        await tgSafe(env, 'sendSticker', { chat_id: u.chat_id, sticker });
+      } else {
+        await tgSafe(env, 'sendMessage', { chat_id: u.chat_id, text: `💌 <b>${esc(from)}</b>: ${esc(text)}`, parse_mode: 'HTML' });
+      }
+    }),
+  );
+  return users.length;
+}
+
+async function onSticker(env, msg) {
+  if (msg.chat.type !== 'private') return;
+  const user = await db.getUser(env, msg.from.id);
+  if (!user) return;
+  const pend = await db.getPending(env, msg.from.id);
+  if (!pend || !pend.state.startsWith('cheer:') || Date.now() - pend.updated_at > 15 * 60000) {
+    return plain(env, msg.chat.id, 'כדי לשלוח סטיקר לבן בית, לוחצים על 💌 עידוד בלוח הראשי (/menu).');
+  }
+  await db.clearPending(env, msg.from.id);
+  const n = await sendCheer(env, user, pend.state.slice(6), { sticker: msg.sticker.file_id });
+  return send(env, msg.chat.id, await v.panel(env, user, { isPrivate: true, notice: n ? `💌 הסטיקר נשלח (${n})` : 'אף אחד מהנמענים לא מחובר לבוט עדיין' }));
+}
+
+async function onCheer(env, cq, user, opts, now) {
+  const msg = cq.message;
+  const answer = (text, alert = false) =>
+    tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
+  const [, act2, to, idx] = cq.data.split(':');
+  let view;
+  let toast = '';
+  if (act2 === 'home') {
+    await db.clearPending(env, cq.from.id);
+    view = v.cheerPick(user);
+  } else if (act2 === 'to') {
+    if (to !== 'all' && (!MEMBER_BY_ID[to] || to === user.member)) return answer('משהו השתבש', true);
+    await db.setPending(env, cq.from.id, `cheer:${to}`, 0, now);
+    view = v.cheerCompose(to);
+  } else if (act2 === 'p') {
+    const text = CHEERS[num(idx)];
+    if (!text || (to !== 'all' && !MEMBER_BY_ID[to])) return answer('משהו השתבש', true);
+    await db.clearPending(env, cq.from.id);
+    const n = await sendCheer(env, user, to, { text });
+    toast = n ? `💌 נשלח (${n})` : 'אף אחד מהנמענים לא מחובר לבוט עדיין';
+    view = await v.panel(env, user, { ...opts, notice: toast });
+  }
+  await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);
 }
 
 /* ---------- עדכון אחורה ---------- */
@@ -317,6 +401,7 @@ async function onCallback(env, cq, ctx, origin) {
 
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
   if (/^hg?:/.test(data)) return onHealth(env, cq, user, now);
+  if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {
     return Promise.all([answer('ההגדרות מנוהלות על ידי אמתי וריקי'), edit(env, msg, v.adminOnly)]);
   }
@@ -346,7 +431,10 @@ async function onCallback(env, cq, ctx, origin) {
       view = v.lateStart(user.member);
     } else if (arg === 'stars') view = await v.starsView(env);
     else if (arg === 'today') view = await v.todayView(env);
-    else if (arg === 'settings') view = await v.settingsView(env, user);
+    else if (arg === 'settings') {
+      await db.clearPending(env, from.id);
+      view = await v.settingsView(env, user);
+    }
     else if (arg === 'undo') {
       const r = await act.undo(env, user.member, now);
       toast = r.toast;
@@ -361,8 +449,13 @@ async function onCallback(env, cq, ctx, origin) {
     } else if (arg === 'interval') {
       const t = await db.thresholds(env);
       await db.setSetting(env, 'interval_min', v.nextOption(INTERVAL_OPTIONS, t.intervalMin));
+    } else if (arg === 'da') {
+      await db.setPending(env, from.id, 'dutyadd', 0, now);
+      view = v.dutyPrompt();
+    } else if (arg.startsWith('dd:')) {
+      toast = (await db.deleteDuty(env, num(arg.slice(3)))) ? 'שעות האחריות נמחקו' : 'כבר נמחק';
     }
-    view = await v.settingsView(env, await db.getUser(env, from.id));
+    if (!view) view = await v.settingsView(env, await db.getUser(env, from.id));
   }
 
   await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);

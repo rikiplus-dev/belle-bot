@@ -1,8 +1,9 @@
 // מה שהבוט מציג: טקסטים ומקלדות. הכול בעברית.
 import * as db from './db.js';
-import { isAdmin, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
+import { isAdmin, CHEERS, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
 import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
+import { onDutyMembers, daysText, clock } from './duty.js';
 
 const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
 const name = (id) => (MEMBER_BY_ID[id] ? MEMBER_BY_ID[id].name : 'מישהו/י');
@@ -39,7 +40,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   rows.push([btn('🏠 פיפי בבית', 'a:pee_home'), btn('🏠 קקי בבית', 'a:poop_home')]);
   rows.push([btn('🍽 בל אכלה', 'a:meal'), btn('👩‍🍳 הכנתי אוכל', 'a:cook')]);
   rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('↩️ ביטול', 'm:undo')]);
-  rows.push([btn('🕐 שכחתי לעדכן', 'm:late')]);
+  rows.push([btn('🕐 שכחתי לעדכן', 'm:late'), btn('💌 עידוד', 'c:home')]);
   const last = [];
   if (isPrivate && origin) last.push({ text: '📊 לוח בקרה', web_app: { url: origin } });
   if (isAdmin(user)) {
@@ -120,6 +121,12 @@ export const adminOnly = {
 
 export async function settingsView(env, user) {
   const t = await db.thresholds(env);
+  const duty = await db.listDuty(env);
+  const nowOn = onDutyMembers(duty, Date.now(), tzOf(env));
+  const dutyLines = ['<b>📅 שעות אחריות</b>', '<i>בשעות האלה רק מי שבאחריות מקבל תזכורות אילוף, עד שהוא מוציא את בל</i>'];
+  if (!duty.length) dutyLines.push('עוד לא הוגדרו. התזכורות מגיעות לכולם.');
+  for (const d of duty) dutyLines.push(`• ${esc(name(d.member))} · ${daysText(d.days)} · ${clock(d.start_min)}-${clock(d.end_min)}`);
+  dutyLines.push(nowOn.length ? `עכשיו באחריות: <b>${nowOn.map((m) => esc(name(m))).join(', ')}</b>` : 'עכשיו אין מי שבאחריות, אז התזכורות מגיעות לכולם.');
   const onoff = (v) => (v ? 'פעיל ✅' : 'כבוי ❌');
   const text = [
     '⚙️ <b>הגדרות</b>',
@@ -133,12 +140,16 @@ export async function settingsView(env, user) {
     `תזכורת אם לא יצאו: כל ${dur(t.intervalMin * 60000)}`,
     '',
     '<i>תזכורות לא נשלחות בין 22:00 ל-07:00</i>',
+    '',
+    ...dutyLines,
   ].join('\n');
   const kb = [
     [btn(`תזכורות: ${user.notify ? 'כבה' : 'הפעל'}`, 's:notify')],
     [btn(`הודעות על טיולים: ${user.notify_activity ? 'כבה' : 'הפעל'}`, 's:activity')],
     [btn(`אחרי ארוחה: ${t.mealNudgeMin} דק׳ ⟳`, 's:meal')],
     [btn(`אם לא יצאו: ${dur(t.intervalMin * 60000)} ⟳`, 's:interval')],
+    ...duty.slice(0, 8).map((d) => [btn(`🗑 ${name(d.member)} · ${daysText(d.days)} · ${clock(d.start_min)}-${clock(d.end_min)}`, `s:dd:${d.id}`)]),
+    [btn('➕ הוספת שעות אחריות', 's:da')],
     [btn('⬅️ חזרה', 'm:menu')],
   ];
   return { text, reply_markup: { inline_keyboard: kb } };
@@ -214,6 +225,45 @@ export function lateWalkBuilder(who, off, d, pee, poop) {
   };
 }
 
+export const dutyPrompt = () => ({
+  text: [
+    '📅 <b>שעות אחריות</b>',
+    '',
+    'שלחו הודעה אחת בפורמט:',
+    '<code>שם | ימים | שעות</code>',
+    '',
+    'ימים: <code>א-ה</code>, <code>כל יום</code>, <code>סופש</code> או אותיות מופרדות כמו <code>א,ג,ה</code>',
+    'שעות: <code>14:00-18:00</code>. אם הסיום קטן מההתחלה זה נמשך עד הבוקר.',
+    '',
+    'למשל:',
+    '<code>שולי | א-ה | 14:00-18:00</code>',
+    '<code>ריקי | כל יום | 20:00-07:00</code>',
+  ].join('\n'),
+  reply_markup: { inline_keyboard: [[btn('⬅️ חזרה', 'm:settings')]] },
+});
+
+/* ---------- עידוד וסטיקרים ---------- */
+
+export function cheerPick(user) {
+  const others = MEMBERS.filter((m) => m.id !== user.member);
+  const rows = [];
+  for (let i = 0; i < others.length; i += 2) rows.push(others.slice(i, i + 2).map((m) => btn(m.name, `c:to:${m.id}`)));
+  rows.push([btn('👨‍👩‍👧‍👦 לכולם', 'c:to:all')]);
+  rows.push([btn('⬅️ חזרה', 'm:menu')]);
+  return { text: '💌 <b>עידוד</b>\nלמי לשלוח?', reply_markup: { inline_keyboard: rows } };
+}
+
+export function cheerCompose(to) {
+  const who = to === 'all' ? 'כולם' : name(to);
+  const rows = [];
+  for (let i = 0; i < CHEERS.length; i += 2) rows.push(CHEERS.slice(i, i + 2).map((c, k) => btn(c, `c:p:${to}:${i + k}`)));
+  rows.push([btn('⬅️ חזרה', 'c:home')]);
+  return {
+    text: `💌 <b>עידוד ל${esc(who)}</b>\n\nלוחצים על הודעה מוכנה, או שולחים לי כאן <b>הודעה משלכם</b> או <b>סטיקר</b> והם יגיעו אליהם.`,
+    reply_markup: { inline_keyboard: rows },
+  };
+}
+
 /* ---------- הצטרפות ועזרה ---------- */
 
 export const askCodeText = `👋 היי! זה בלבוט, העוזר של המשפחה לאילוף של ${DOG} 🐶\n\nכדי להצטרף, שלחו כאן את <b>קוד המשפחה</b>.`;
@@ -239,23 +289,44 @@ export const helpText = [
   '• 🍽 אכלה, 👩‍🍳 הכנתי אוכל.',
   '• ↩️ ביטול מבטל את הפעולה האחרונה שלך (עד 15 דקות).',
   '• 🩺 <b>בריאות</b> (לאמתי וריקי): תרופות עם תזכורות, יומן רפואי ומועדי חיסונים.',
+  '• 💌 <b>עידוד</b> שולח הודעה מוכנה, הודעה חופשית או סטיקר לבן בית או לכולם.',
   '• 🕐 <b>שכחתי לעדכן</b> מוסיף אחורה טיול, פיפי/קקי בבית או אוכל, עד יממה אחורה, וגם על שם מישהו אחר.',
   '',
   'אפשר גם לכתוב "פיפי" או "קקי" והבוט ישאל איפה.',
   '',
   '<b>פקודות</b>',
   '/menu לוח ראשי · /walk התחלת טיול · /stars כוכבים',
-  '/today מה היה היום · /late עדכון אחורה · /settings הגדרות · /help העזרה הזאת',
+  '/today מה היה היום · /late עדכון אחורה · /cheer עידוד · /settings הגדרות · /help העזרה הזאת',
 ].join('\n');
 
 /* ---------- הודעות אוטומטיות ---------- */
 
+const takeOut = (id) => {
+  const g = MEMBER_BY_ID[id]?.g;
+  return g === 'f' ? 'הוציאה' : g === 'm' ? 'הוציא' : null;
+};
+
+const num = (n, w) => (n > 1 ? `${w} ×${n}` : w);
+
+// "עשתה קקי, לא פיפי"
+export function outcomeText(c) {
+  const pee = c.pee_out || 0;
+  const poop = c.poop_out || 0;
+  if (pee && poop) return `עשתה ${num(pee, 'פיפי')} ו${num(poop, 'קקי')}`;
+  if (pee) return `עשתה ${num(pee, 'פיפי')}, לא קקי`;
+  if (poop) return `עשתה ${num(poop, 'קקי')}, לא פיפי`;
+  return 'בלי פיפי וקקי הפעם';
+}
+
 export function walkStartedText(who) {
-  return `🚶 טיול עם ${DOG} התחיל · ${esc(name(who))}`;
+  const verb = takeOut(who);
+  return verb ? `🚶 ${esc(name(who))} ${verb} את ${DOG} לטיול` : `🚶 ${DOG} יצאה לטיול עם ${esc(name(who))}`;
 }
 
 export function walkEndedText(r) {
-  return `🏁 ${DOG} חזרה · ${esc(name(r.walker))} · ${r.took} · ${r.summary} · ⭐ +1`;
+  const verb = takeOut(r.walker);
+  const head = verb ? `🏁 ${esc(name(r.walker))} ${verb} את ${DOG} לטיול · ${r.took}` : `🏁 ${DOG} חזרה מטיול עם ${esc(name(r.walker))} · ${r.took}`;
+  return `${head}\n${DOG} ${outcomeText(r.counts || {})} · ⭐ +1`;
 }
 
 export async function weeklyText(env, now) {
