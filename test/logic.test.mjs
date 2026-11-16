@@ -159,3 +159,39 @@ test('calendar', async () => {
   assert.match(url, /^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE/);
   assert.match(url, /dates=20261220%2F20261221/);
 });
+
+import { lookup, FOODS, byLevel, stem } from '../src/foods.js';
+test('חיפוש מזון', () => {
+  const lv = (q) => lookup(q).level;
+  assert.equal(lv('שוקולד'), 'no');
+  assert.equal(lv('האם מותר לתת לבל שוקולד לבן?'), 'no');
+  assert.equal(lv('הענבים'), 'no');
+  assert.equal(lv('צימוקים'), 'no');
+  assert.equal(lv('בצל'), 'no');
+  assert.equal(lv('קסיליטול'), 'no');
+  assert.equal(lv('בננות'), 'mid');
+  assert.equal(lv('תפוחי אדמה'), 'mid');
+  assert.equal(lv('תפוח'), 'ok');
+  assert.equal(lv('גזר'), 'ok');
+  assert.equal(lv('אבטיח בלי גרעינים'), 'ok');
+  assert.equal(lv('בנאנה'), 'mid', 'טעות כתיב');
+  assert.equal(lv('עוגת שוקולד עם אגוזים'), 'no', 'הגרוע מבין המרכיבים');
+  assert.equal(lookup('קרמבו').level, null);
+  assert.equal(lookup('').level, null);
+  assert.ok(lookup('תפוח אדמה').matches.every((m) => m.name !== 'תפוח'), 'תפוח אדמה אינו תפוח');
+  assert.equal(stem('עגבניות'), stem('עגבנייה'));
+});
+test('מאגר המזון שלם ותקין', () => {
+  assert.ok(FOODS.length >= 100);
+  for (const l of ['no', 'mid', 'ok']) assert.ok(byLevel(l).length >= 25, l);
+  for (const f of FOODS) {
+    assert.ok(f.name && f.note && f.aliases.length, f.name);
+    // כל כינוי של מזון מוצא את המזון עצמו (או מזון חמור ממנו)
+    for (const a of f.aliases) {
+      const r = lookup(a);
+      assert.ok(r.matches.length, `כינוי "${a}" של ${f.name} לא נמצא`);
+      const rank = { no: 0, mid: 1, ok: 2 };
+      assert.ok(rank[r.level] <= rank[f.level], `כינוי "${a}" של ${f.name} (${f.level}) יצא ${r.level}`);
+    }
+  }
+});

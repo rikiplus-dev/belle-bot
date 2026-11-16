@@ -657,6 +657,46 @@ try {
     ok('בשעות אחריות רק התורן מקבל תזכורות, ובלי אחריות כולם');
   }
 
+  /* מה מותר לבל לאכול */
+  take();
+  await post(msg(1001, '/menu'));
+  c = take();
+  assert.ok(JSON.stringify(c).includes('f:home'), 'כפתור המזון בלוח הראשי');
+  await post(cb(1001, 'f:home'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /מה מותר/), 'מסך המזון נפתח');
+  await post(cb(1001, 'f:l:no:0'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /שוקולד/) && find(c, 'editMessageText', /וטרינר/), 'רשימת האסור עם שוקולד והפניה לוטרינר');
+  await post(cb(1001, 'f:l:ok:0'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /גזר/), 'רשימת הבכיף');
+  await post(cb(1001, 'f:ask'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /איזה מזון/), 'מבקש שם מזון');
+  await post(msg(1001, 'האם מותר שוקולד לבן?'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /אסור לבל/) && find(c, 'sendMessage', /שוקולד/), 'שוקולד: אסור');
+  await post(cb(1001, 'f:ask'));
+  take();
+  await post(msg(1001, 'בננות'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /בינוני/), 'בננה: בינוני');
+  await post(cb(1001, 'f:ask'));
+  take();
+  await post(msg(1001, 'גזר'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /בכיף/), 'גזר: בכיף');
+  await post(cb(1001, 'f:ask'));
+  take();
+  await post(msg(1001, 'קרמבו'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /לא מכיר/), 'מזון לא מוכר');
+  await post(msg(1001, '/food ענבים'));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /אסור לבל/), '/food עם שם מזון');
+  ok('מאגר מזון: תפריט, רשימות, בדיקה חופשית, לא מוכר ופקודה');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

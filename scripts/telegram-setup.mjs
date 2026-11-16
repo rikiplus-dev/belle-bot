@@ -27,6 +27,7 @@ export async function setupTelegram({ token, secret, url }) {
       { command: 'walk', description: 'יוצאים לטיול' },
       { command: 'stars', description: 'כוכבים השבוע' },
       { command: 'today', description: 'מה היה היום' },
+      { command: 'food', description: 'מה מותר לבל לאכול? (אפשר: /food בננה)' },
       { command: 'cheer', description: 'שליחת עידוד או סטיקר' },
       { command: 'late', description: 'שכחתי לעדכן (הוספה אחורה)' },
       { command: 'undo', description: 'ביטול הפעולה האחרונה' },

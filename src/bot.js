@@ -7,6 +7,7 @@ import { broadcast } from './notify.js';
 import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
 import * as wz from './wizards.js';
+import { lookup } from './foods.js';
 import { CHEERS } from './config.js';
 import { minutesAgoFromClock, startOfDay } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
@@ -87,6 +88,12 @@ async function onText(env, msg, ctx, origin) {
         if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
         await db.clearPending(env, from.id);
         return send(env, chat.id, await hl.healthHome(env, now));
+      case 'food': {
+        await db.clearPending(env, from.id);
+        const q = (cmd.args || '').trim();
+        if (!q) return send(env, chat.id, v.foodHome());
+        return send(env, chat.id, v.foodResult(q, lookup(q)));
+      }
       case 'undo': {
         const r = await act.undo(env, user.member, now);
         return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
@@ -99,6 +106,12 @@ async function onText(env, msg, ctx, origin) {
   }
 
   const pend = await db.getPending(env, from.id);
+
+  // בדיקת מזון: ממתינים לשם מזון
+  if (pend && pend.state === 'food') {
+    await db.clearPending(env, from.id);
+    if (now - pend.updated_at <= 20 * 60000) return send(env, chat.id, v.foodResult(text, lookup(text)));
+  }
 
   // הודעה חופשית לעידוד
   if (pend && pend.state.startsWith('cheer:')) {
@@ -282,6 +295,19 @@ async function onCheerNotice(env, cq, user, now) {
     });
   }
   return answer();
+}
+
+async function onFood(env, cq, now) {
+  const [, act2, level, page] = cq.data.split(':');
+  let view;
+  if (act2 === 'ask') {
+    await db.setPending(env, cq.from.id, 'food', 0, now);
+    view = v.foodAsk();
+  } else {
+    await db.clearPending(env, cq.from.id);
+    view = act2 === 'l' ? v.foodList(level, num(page) || 0) : v.foodHome();
+  }
+  await Promise.all([tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id }), edit(env, cq.message, view)]);
 }
 
 async function onCheer(env, cq, user, opts, now) {
@@ -541,6 +567,7 @@ async function onCallback(env, cq, ctx, origin) {
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
   if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);
+  if (data.startsWith('f:')) return onFood(env, cq, now);
   if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
   if (data.startsWith('cn:')) return onCheerNotice(env, cq, user, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {

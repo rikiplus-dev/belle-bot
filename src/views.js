@@ -4,6 +4,7 @@ import { isAdmin, CHEERS, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS,
 import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
 import { onDutyMembers, daysText, clock } from './duty.js';
+import { LEVELS, CATEGORIES, FOODS, byLevel } from './foods.js';
 
 const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
 const name = (id) => (MEMBER_BY_ID[id] ? MEMBER_BY_ID[id].name : 'מישהו/י');
@@ -41,6 +42,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   rows.push([btn('🍽 בל אכלה', 'a:meal'), btn('👩‍🍳 הכנתי אוכל', 'a:cook')]);
   rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('↩️ ביטול', 'm:undo')]);
   rows.push([btn('🕐 שכחתי לעדכן', 'm:late'), btn('💌 עידוד', 'c:home')]);
+  rows.push([btn('🍖 מה מותר לבל לאכול?', 'f:home')]);
   const last = [];
   if (isPrivate && origin) last.push({ text: '📊 לוח בקרה', web_app: { url: origin } });
   if (isAdmin(user)) {
@@ -280,6 +282,7 @@ export const helpText = [
   '• 🍽 אכלה, 👩‍🍳 הכנתי אוכל.',
   '• ↩️ ביטול מבטל את הפעולה האחרונה שלך (עד 15 דקות).',
   '• 🩺 <b>בריאות</b> (לאמתי וריקי): תרופות עם תזכורות, יומן רפואי ומועדי חיסונים.',
+  '• 🍖 <b>מה מותר לבל לאכול?</b> (או /food): רשימות של אסור, בינוני ובכיף, ובדיקה מהירה של כל מזון: לוחצים 🔎 וכותבים את השם.',
   '• 💌 <b>עידוד</b> שולח הודעה מוכנה, הודעה חופשית או סטיקר לבן בית או לכולם.',
   '• 🕐 <b>שכחתי לעדכן</b> מוסיף אחורה טיול, פיפי/קקי בבית או אוכל, עד יממה אחורה, וגם על שם מישהו אחר.',
   '',
@@ -287,7 +290,7 @@ export const helpText = [
   '',
   '<b>פקודות</b>',
   '/menu לוח ראשי · /walk התחלת טיול · /stars כוכבים',
-  '/today מה היה היום · /late עדכון אחורה · /cheer עידוד · /settings הגדרות · /help העזרה הזאת',
+  '/today מה היה היום · /late עדכון אחורה · /food מה מותר לאכול · /cheer עידוד · /settings הגדרות · /help העזרה הזאת',
 ].join('\n');
 
 /* ---------- הודעות אוטומטיות ---------- */
@@ -340,4 +343,122 @@ export async function weeklyText(env, now) {
   const tot = out + home;
   if (tot) lines.push(`🌳 בחוץ ${out}  ·  🏠 בבית ${home}  (${Math.round((out / tot) * 100)}% בחוץ)`);
   return lines.join('\n');
+}
+
+/* ---------- מה מותר לבל לאכול ---------- */
+
+const FOOD_RULE = 'כלל זהב: מזון חדש מתחילים בכמות קטנה, וכל הנשנושים יחד עד כ-10% מהאוכל היומי.';
+const FOOD_EMERGENCY = '🚨 אם בל אכלה משהו מהרשימה האסורה: וטרינר מיד, בלי לחכות לסימנים. אפשר גם מוקד הרעלות לבעלי חיים (ASPCA) 888-426-4435.';
+
+const foodNav = [
+  [btn('🔎 בדיקה של מזון', 'f:ask')],
+  [btn('🚫 אסור', 'f:l:no:0'), btn('⚠️ בינוני', 'f:l:mid:0'), btn('✅ בכיף', 'f:l:ok:0')],
+  [btn('⬅️ חזרה', 'm:menu')],
+];
+
+export function foodHome() {
+  const topNo = ['שוקולד', 'ענבים וצימוקים', 'קסיליטול (מסטיק וממתקים ללא סוכר)', 'בצל ושום', 'מקדמיה', 'אבוקדו', 'אלכוהול וקפאין', 'עצמות מבושלות'];
+  return {
+    text: [
+      `🍖 <b>מה מותר ל${esc(DOG)} לאכול?</b>`,
+      '',
+      '🚫 <b>אסור:</b> מסוכן או רעיל, לא נותנים בכלל.',
+      '⚠️ <b>בינוני:</b> אפשר, אבל במעט, ולפעמים רק בצורה מסוימת.',
+      '✅ <b>בכיף:</b> פינוק טוב, אבל גם בו לא מגזימים.',
+      '',
+      `הכי חשוב לזכור: ${topNo.slice(0, 5).join(', ')}.`,
+      '',
+      `<i>${esc(FOOD_RULE)}</i>`,
+      '',
+      'לא בטוחים? לוחצים 🔎 וכותבים את שם המזון.',
+    ].join('\n'),
+    reply_markup: { inline_keyboard: foodNav },
+  };
+}
+
+export function foodAsk() {
+  return {
+    text: '🔎 <b>איזה מזון לבדוק?</b>\nכתבו את השם עכשיו, למשל: <i>בננה</i>, <i>גבינה צהובה</i>, <i>עוגת שוקולד</i>.',
+    reply_markup: { inline_keyboard: [[btn('✖️ ביטול', 'f:home')]] },
+  };
+}
+
+const DETAIL = {
+  no: (m) => `🚫 <b>${esc(m.name)}</b>: ${esc(m.note)}`,
+  mid: (m) => `⚠️ <b>${esc(m.name)}</b>: ${esc(m.note)}`,
+  ok: (m) => `✅ <b>${esc(m.name)}</b>: ${esc(m.note)}`,
+};
+
+export function foodResult(q, r) {
+  const rows = [[btn('🔎 לבדוק עוד', 'f:ask')], [btn('🚫 אסור', 'f:l:no:0'), btn('⚠️ בינוני', 'f:l:mid:0'), btn('✅ בכיף', 'f:l:ok:0')], [btn('⬅️ חזרה', 'f:home')]];
+  const quote = `"${esc(q.slice(0, 60))}"`;
+  if (!r.matches.length) {
+    return {
+      text: [
+        `🤔 ${quote}: את זה אני עוד לא מכיר.`,
+        '',
+        'כשיש ספק, לא נותנים. כדאי לשאול את הוטרינר, או לנסות שם אחר (למשל בלי כינוי, או במילה אחת).',
+        '',
+        `<i>${esc(FOOD_RULE)}</i>`,
+      ].join('\n'),
+      reply_markup: { inline_keyboard: rows },
+    };
+  }
+  const head = {
+    no: `🚫 <b>אסור לבל!</b> (${quote})`,
+    mid: `⚠️ <b>בינוני</b>: אפשר, אבל לא בהגזמה (${quote})`,
+    ok: `✅ <b>בכיף!</b> (${quote})`,
+  }[r.level];
+  const lines = [head, ''];
+  for (const m of r.matches.slice(0, 4)) lines.push(DETAIL[m.level](m));
+  if (r.matches.length > 1) lines.push('', 'מצאתי כמה מרכיבים. הפסיקה היא לפי הגרוע שבהם.');
+  if (r.level === 'no') lines.push('', FOOD_EMERGENCY);
+  else lines.push('', `<i>${esc(FOOD_RULE)}</i>`);
+  return { text: lines.join('\n'), reply_markup: { inline_keyboard: rows } };
+}
+
+// רשימה של רמה אחת, מחולקת לעמודים כדי לא לחרוג מגבול ההודעה בטלגרם
+function foodPages(level) {
+  const items = byLevel(level);
+  const blocks = [];
+  for (const cat of CATEGORIES) {
+    const inCat = items.filter((f) => f.cat === cat);
+    if (!inCat.length) continue;
+    const lines = [`<b>${esc(cat)}</b>`];
+    for (const f of inCat) lines.push(level === 'ok' ? `• ${esc(f.name)}: ${esc(f.note)}` : `• <b>${esc(f.name)}</b>: ${esc(f.note)}`);
+    blocks.push(lines.join('\n'));
+  }
+  const pages = [];
+  let cur = '';
+  for (const b of blocks) {
+    if (cur && cur.length + b.length > 3200) {
+      pages.push(cur);
+      cur = '';
+    }
+    cur += (cur ? '\n\n' : '') + b;
+  }
+  if (cur) pages.push(cur);
+  return pages;
+}
+
+export function foodList(level, page = 0) {
+  const L = LEVELS[level];
+  if (!L) return foodHome();
+  const pages = foodPages(level);
+  const i = Math.max(0, Math.min(page, pages.length - 1));
+  const title = { no: '🚫 <b>אסור לבל</b>', mid: '⚠️ <b>בינוני: אפשר, אבל לא בהגזמה</b>', ok: '✅ <b>בכיף</b>' }[level];
+  const sub = { no: 'לא נותנים בכלל.', mid: 'במעט, ולפי ההערה.', ok: 'פינוקים טובים, אבל גם בהם במידה.' }[level];
+  const nav = [];
+  if (pages.length > 1) {
+    const row = [];
+    if (i > 0) row.push(btn('◀️ הקודם', `f:l:${level}:${i - 1}`));
+    row.push(btn(`${i + 1}/${pages.length}`, `f:l:${level}:${i}`));
+    if (i < pages.length - 1) row.push(btn('הבא ▶️', `f:l:${level}:${i + 1}`));
+    nav.push(row);
+  }
+  const others = ['no', 'mid', 'ok'].filter((x) => x !== level).map((x) => btn(`${LEVELS[x].icon} ${LEVELS[x].title}`, `f:l:${x}:0`));
+  nav.push(others);
+  nav.push([btn('🔎 בדיקה של מזון', 'f:ask'), btn('⬅️ חזרה', 'f:home')]);
+  const foot = level === 'no' ? `\n\n${FOOD_EMERGENCY}` : '';
+  return { text: `${title}\n<i>${sub}</i>\n\n${pages[i]}${foot}`, reply_markup: { inline_keyboard: nav } };
 }
