@@ -1,7 +1,7 @@
 // הפעולות עצמן. הבוט ולוח הבקרה משתמשים באותן פונקציות.
 import * as db from './db.js';
-import { KINDS, MEMBER_BY_ID, WALK_STAR } from './config.js';
-import { dur } from './time.js';
+import { KINDS, MEMBER_BY_ID, WALK_STAR, LATE_KINDS, MAX_LATE_MIN } from './config.js';
+import { dur, hhmm } from './time.js';
 
 const name = (id) => (MEMBER_BY_ID[id] ? MEMBER_BY_ID[id].name : 'מישהו/י');
 
@@ -61,4 +61,50 @@ export async function undo(env, member, now) {
   if (r.type === 'walk') return { ok: true, toast: '↩️ הטיול בוטל', notice: `${name(member)}: ↩️ הטיול בוטל` };
   const k = KINDS[r.event.kind];
   return { ok: true, toast: `↩️ בוטל: ${k.label}`, notice: `${name(member)}: ↩️ בוטל ${k.label}` };
+}
+
+/* ---------- עדכון אחורה ---------- */
+
+const validMin = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_LATE_MIN;
+const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
+const clampN = (n) => Math.max(0, Math.min(5, Number.isInteger(n) ? n : 0));
+
+// פיפי/קקי בבית, אוכל או הכנת אוכל שנשכחו. minAgo = לפני כמה דקות.
+// who = מי עשה (ברירת מחדל: מי שמעדכן)
+export async function logLate(env, who, kind, minAgo, now) {
+  if (!LATE_KINDS.includes(kind)) return { ok: false, toast: 'את זה אי אפשר לעדכן אחורה' };
+  if (!MEMBER_BY_ID[who]) return { ok: false, toast: 'לא מכירים את בן הבית' };
+  if (!validMin(minAgo)) return { ok: false, toast: 'אפשר לעדכן עד יממה אחורה' };
+  const ts = now - minAgo * 60000;
+  const r = await db.logEvent(env, who, kind, ts, 'late');
+  if (!r.ok) return { ok: false, toast: 'לא הצלחנו לתעד' };
+  const k = KINDS[kind];
+  const when = `${hhmm(ts, tzOf(env))} (לפני ${dur(minAgo * 60000)})`;
+  const star = k.star ? ` · ⭐ +${k.star}` : '';
+  return {
+    ok: true,
+    event: r.event,
+    toast: `${k.emoji} ${k.label} · ${when}${star}`,
+    notice: `${name(who)}: ${k.emoji} ${k.label} · ${when}${k.star ? ' ⭐' : ''}`,
+  };
+}
+
+// טיול שהיה ונשכח: התחיל לפני minAgo דקות, ארך durMin דקות
+export async function walkLate(env, who, minAgo, durMin, pee, poop, now) {
+  if (!MEMBER_BY_ID[who]) return { ok: false, toast: 'לא מכירים את בן הבית' };
+  if (!validMin(minAgo)) return { ok: false, toast: 'אפשר לעדכן עד יממה אחורה' };
+  if (!Number.isInteger(durMin) || durMin < 5 || durMin > 240) return { ok: false, toast: 'משך הטיול לא תקין' };
+  const start = now - minAgo * 60000;
+  const end = Math.min(start + durMin * 60000, now);
+  pee = clampN(pee);
+  poop = clampN(poop);
+  const w = await db.insertPastWalk(env, who, start, end, pee, poop);
+  const bits = [pee ? `💧${pee}` : '', poop ? `💩${poop}` : ''].filter(Boolean).join(' ') || 'בלי פיפי וקקי';
+  const when = `${hhmm(start, tzOf(env))} · ${dur(end - start)}`;
+  return {
+    ok: true,
+    walk: w,
+    toast: `🚶 טיול נוסף · ${when} · ⭐ +${WALK_STAR}`,
+    notice: `${name(who)}: 🚶 טיול שהיה · ${when} · ${bits} · ⭐ +${WALK_STAR}`,
+  };
 }

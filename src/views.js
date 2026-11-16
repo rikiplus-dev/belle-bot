@@ -1,6 +1,6 @@
 // מה שהבוט מציג: טקסטים ומקלדות. הכול בעברית.
 import * as db from './db.js';
-import { DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS } from './config.js';
+import { DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
 import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
 
@@ -39,6 +39,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   rows.push([btn('🏠 פיפי בבית', 'a:pee_home'), btn('🏠 קקי בבית', 'a:poop_home')]);
   rows.push([btn('🍽 בל אכלה', 'a:meal'), btn('👩‍🍳 הכנתי אוכל', 'a:cook')]);
   rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('↩️ ביטול', 'm:undo')]);
+  rows.push([btn('🕐 שכחתי לעדכן', 'm:late')]);
   const last = [];
   if (isPrivate && origin) last.push({ text: '📊 לוח בקרה', web_app: { url: origin } });
   last.push(btn('⚙️ הגדרות', 'm:settings'));
@@ -139,6 +140,73 @@ export async function settingsView(env, user) {
 export const nextOption = (options, current) => options[(Math.max(0, options.indexOf(current)) + 1) % options.length];
 export { MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS };
 
+/* ---------- עדכון אחורה ---------- */
+
+const pairs = (arr) => {
+  const rows = [];
+  for (let i = 0; i < arr.length; i += 2) rows.push(arr.slice(i, i + 2));
+  return rows;
+};
+const nextMember = (id) => MEMBERS[(MEMBERS.findIndex((m) => m.id === id) + 1) % MEMBERS.length].id;
+const lateBack = [btn('⬅️ חזרה', 'm:late')];
+
+export function lateStart(who) {
+  return {
+    text: `🕐 <b>שכחתם לעדכן?</b>
+מה קרה? אפשר להוסיף עד יממה אחורה.
+
+עבור: <b>${esc(name(who))}</b>`,
+    reply_markup: {
+      inline_keyboard: [
+        [btn('🚶 טיול שהיה', `lk:${who}:walk`)],
+        [btn('🏠 פיפי בבית', `lk:${who}:pee_home`), btn('🏠 קקי בבית', `lk:${who}:poop_home`)],
+        [btn('🍽 בל אכלה', `lk:${who}:meal`), btn('👩‍🍳 הכנת אוכל', `lk:${who}:cook`)],
+        [btn(`👤 מי עשה: ${name(who)} ⟳`, `lw:${nextMember(who)}`)],
+        [btn('⬅️ חזרה', 'm:menu')],
+      ],
+    },
+  };
+}
+
+export function lateWhen(who, kind) {
+  const label = kind === 'walk' ? '🚶 טיול' : `${KINDS[kind].emoji} ${KINDS[kind].label}`;
+  const word = kind === 'walk' ? 'יצאו' : 'זה היה';
+  const rows = pairs(LATE_OFFSETS.map((m) => btn(`לפני ${dur(m * 60000)}`, `lt:${who}:${kind}:${m}`)));
+  rows.push([btn('⌨️ שעה מדויקת', `lx:${who}:${kind}`)]);
+  rows.push(lateBack);
+  return { text: `${label} · ${esc(name(who))}
+מתי ${word}?`, reply_markup: { inline_keyboard: rows } };
+}
+
+export const lateTimePrompt = (who, kind) => ({
+  text: `⌨️ שלחו את השעה כאן בהודעה, למשל <b>14:30</b>.
+אם השעה עוד לא הגיעה היום, נניח שהכוונה לאתמול.`,
+  reply_markup: { inline_keyboard: [lateBack] },
+});
+
+export function lateDur(who, off) {
+  const rows = pairs(LATE_WALK_DURS.map((d) => btn(dur(d * 60000), `ld:${who}:${off}:${d}`)));
+  rows.push(lateBack);
+  return { text: `🚶 כמה זמן נמשך הטיול?`, reply_markup: { inline_keyboard: rows } };
+}
+
+export function lateWalkBuilder(who, off, d, pee, poop) {
+  const key = (p, q) => `lb:${who}:${off}:${d}:${p}:${q}`;
+  return {
+    text: `🚶 <b>טיול שהיה</b> · ${esc(name(who))} · ${dur(d * 60000)}
+
+מה היה בטיול?
+💧 פיפי <b>${pee}</b>   💩 קקי <b>${poop}</b>`,
+    reply_markup: {
+      inline_keyboard: [
+        [btn('💧 +1', key(Math.min(5, pee + 1), poop)), btn('💩 +1', key(pee, Math.min(5, poop + 1)))],
+        [btn('🔄 איפוס', key(0, 0)), btn('✅ שמירה', `ls:${who}:${off}:${d}:${pee}:${poop}`)],
+        lateBack,
+      ],
+    },
+  };
+}
+
 /* ---------- הצטרפות ועזרה ---------- */
 
 export const askCodeText = `👋 היי! זה בלבוט, העוזר של המשפחה לאילוף של ${DOG} 🐶\n\nכדי להצטרף, שלחו כאן את <b>קוד המשפחה</b>.`;
@@ -163,12 +231,13 @@ export const helpText = [
   '• 🏠 פיפי או קקי <b>בבית</b> לא מורידים כוכבים, הם עוזרים לראות מתי זה קורה.',
   '• 🍽 אכלה, 👩‍🍳 הכנתי אוכל.',
   '• ↩️ ביטול מבטל את הפעולה האחרונה שלך (עד 15 דקות).',
+  '• 🕐 <b>שכחתי לעדכן</b> מוסיף אחורה טיול, פיפי/קקי בבית או אוכל, עד יממה אחורה, וגם על שם מישהו אחר.',
   '',
   'אפשר גם לכתוב "פיפי" או "קקי" והבוט ישאל איפה.',
   '',
   '<b>פקודות</b>',
   '/menu לוח ראשי · /walk התחלת טיול · /stars כוכבים',
-  '/today מה היה היום · /settings הגדרות · /help העזרה הזאת',
+  '/today מה היה היום · /late עדכון אחורה · /settings הגדרות · /help העזרה הזאת',
 ].join('\n');
 
 /* ---------- הודעות אוטומטיות ---------- */

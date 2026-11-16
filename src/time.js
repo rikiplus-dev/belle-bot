@@ -103,3 +103,10 @@ export function ago(ts, now) {
   if (m < 1) return 'הרגע';
   return `לפני ${dur(now - ts)}`;
 }
+
+// "14:30" -> לפני כמה דקות. אם השעה עוד לא הגיעה היום, מתכוונים לאתמול.
+export function minutesAgoFromClock(h, m, now, tz) {
+  let ts = startOfDay(now, tz) + (h * 60 + m) * 60000;
+  if (ts > now) ts -= 86400000;
+  return Math.round((now - ts) / 60000);
+}

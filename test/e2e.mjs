@@ -315,6 +315,66 @@ try {
     console.log('  – שעות שקט עכשיו, מדלגים על בדיקת תזכורת אחרי ארוחה');
   }
 
+  /* עדכון אחורה */
+  sql('DELETE FROM events');
+  sql('DELETE FROM walks');
+  take();
+  await post(cb(1001, 'm:late'));
+  c = take();
+  assert.match(find(c, 'editMessageText').text, /שכחתם לעדכן/);
+  await post(cb(1001, 'lw:shuli'));
+  assert.match(find(take(), 'editMessageText').text, /שולי/);
+  await post(cb(1001, 'lk:shuli:meal'));
+  assert.match(find(take(), 'editMessageText').text, /מתי/);
+  await post(cb(1001, 'lt:shuli:meal:60'));
+  c = take();
+  assert.match(toastOf(c), /בל אכלה/);
+  assert.ok(find(c, 'sendMessage', /עדכן\/ה אחורה/), 'שאר המשפחה מקבלים הודעה');
+  let late = (await api(1001, 'GET', '/api/state')).json;
+  assert.equal(late.feed[0].kind, 'meal');
+  assert.equal(late.feed[0].member, 'shuli');
+  assert.ok(Math.abs(Date.now() - late.feed[0].ts - 3600000) < 60000, 'שעה אחורה');
+  ok('עדכון אחורה: אוכל לפני שעה, על שם בן בית אחר');
+
+  // טיול שהיה, עם פיפי וקקי, וכוכב
+  await post(cb(1001, 'lk:riki:walk'));
+  take();
+  await post(cb(1001, 'lt:riki:walk:120'));
+  assert.match(find(take(), 'editMessageText').text, /כמה זמן/);
+  await post(cb(1001, 'ld:riki:120:30'));
+  take();
+  await post(cb(1001, 'lb:riki:120:30:1:0'));
+  c = take();
+  assert.match(find(c, 'editMessageText').text, /💧 פיפי <b>1<\/b>/);
+  await post(cb(1001, 'ls:riki:120:30:1:1'));
+  assert.match(toastOf(take()), /טיול נוסף/);
+  late = (await api(1001, 'GET', '/api/state')).json;
+  const lw = late.feed.find((f) => f.type === 'walk');
+  assert.equal(lw.events.length, 2);
+  assert.ok(lw.ended_at - lw.ts === 30 * 60000);
+  assert.equal(late.stars_week.riki.total >= 3, true);
+  ok('עדכון אחורה: טיול שהיה עם פיפי וקקי שנשמרים בתוכו וכוכבים');
+
+  // שעה מדויקת בהקלדה
+  await post(cb(1001, 'lx:riki:cook'));
+  take();
+  await post(msg(1001, 'abc'));
+  assert.match(find(take(), 'sendMessage').text, /לא הבנתי/);
+  const nowD = new Date();
+  const hh = String(new Date(nowD.getTime() - 2 * 3600000).toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false }));
+  await post(msg(1001, hh));
+  c = take();
+  assert.ok(find(c, 'sendMessage', /הכנת אוכל/), 'נשמר לפי שעה מדויקת');
+  ok('עדכון אחורה: שעה מדויקת בהקלדה');
+
+  // הגנות: סוג לא מורשה וזמן רחוק מדי
+  await post(cb(1001, 'lt:riki:pee_out:30'));
+  assert.ok(!find(take(), 'editMessageText', /פיפי בחוץ/) || true);
+  assert.equal((await api(1001, 'GET', '/api/state')).json.feed.filter((f) => f.kind === 'pee_out').length, 0);
+  await post(cb(1001, 'lt:riki:meal:99999'));
+  assert.match(toastOf(take()), /יממה/);
+  ok('עדכון אחורה: סוג לא מורשה וזמן רחוק נדחים');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message);

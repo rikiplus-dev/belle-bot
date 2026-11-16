@@ -92,6 +92,22 @@ export async function logEvent(env, member, kind, now, source = 'bot') {
   return { ok: true, event: { id: r.meta.last_row_id, ts: now, kind, member, walk_id: walkId }, stars: k.star };
 }
 
+// טיול שהסתיים כבר (עדכון אחורה), עם פיפי וקקי שמפוזרים בתוכו
+export async function insertPastWalk(env, member, start, end, pee, poop) {
+  const w = await q(env, 'INSERT INTO walks(member, started_at, ended_at, auto_closed) VALUES(?,?,?,0)', member, start, end).run();
+  const id = w.meta.last_row_id;
+  const kinds = [...Array(pee).fill('pee_out'), ...Array(poop).fill('poop_out')];
+  const n = kinds.length;
+  if (n) {
+    await env.DB.batch(
+      kinds.map((k, i) =>
+        q(env, 'INSERT INTO events(ts,kind,member,walk_id,source) VALUES(?,?,?,?,?)', Math.round(start + ((end - start) * (i + 1)) / (n + 1)), k, member, id, 'late'),
+      ),
+    );
+  }
+  return { id, member, started_at: start, ended_at: end, pee_out: pee, poop_out: poop };
+}
+
 // מבטל את הפעולה האחרונה של בן הבית (עד 15 דקות אחורה)
 export async function undoLast(env, member, now) {
   const limit = now - 15 * 60000;

@@ -42,3 +42,9 @@ export const DEFAULTS = {
 
 export const MEAL_NUDGE_OPTIONS = [15, 20, 30, 45];
 export const INTERVAL_OPTIONS = [120, 150, 180, 240];
+
+// עדכון אחורה: מה אפשר לתעד בדיעבד, ואילו כפתורי זמן להציג (בדקות)
+export const LATE_KINDS = ['pee_home', 'poop_home', 'meal', 'cook'];
+export const LATE_OFFSETS = [10, 20, 30, 60, 120, 180];
+export const LATE_WALK_DURS = [10, 20, 30, 45, 60];
+export const MAX_LATE_MIN = 24 * 60; // עד יממה אחורה

@@ -4,7 +4,8 @@ import * as act from './actions.js';
 import * as v from './views.js';
 import { tgSafe, esc } from './telegram.js';
 import { broadcast } from './notify.js';
-import { DOG, MEMBER_BY_ID } from './config.js';
+import { DOG, MEMBER_BY_ID, LATE_KINDS } from './config.js';
+import { minutesAgoFromClock } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
 
 const MAX_ATTEMPTS = 5;
@@ -66,6 +67,9 @@ async function onText(env, msg, ctx, origin) {
         if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id }));
         return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
       }
+      case 'late':
+        await db.clearPending(env, from.id);
+        return send(env, chat.id, v.lateStart(user.member));
       case 'stars':
         return send(env, chat.id, await v.starsView(env));
       case 'today':
@@ -80,6 +84,24 @@ async function onText(env, msg, ctx, origin) {
         return plain(env, chat.id, v.helpText);
       default:
         return plain(env, chat.id, 'לא הכרתי את הפקודה. /menu פותח את הלוח, /help מסביר.');
+    }
+  }
+
+  // שעה מדויקת לעדכון אחורה, למשל 14:30
+  const pend = await db.getPending(env, from.id);
+  if (pend && pend.state.startsWith('late:')) {
+    const tm = text.match(/^(\d{1,2})[:.](\d{2})$/);
+    if (now - pend.updated_at > 10 * 60000) {
+      await db.clearPending(env, from.id);
+    } else if (!tm || +tm[1] > 23 || +tm[2] > 59) {
+      return plain(env, chat.id, 'לא הבנתי. כתבו שעה כמו 14:30');
+    } else {
+      const [, who, kind] = pend.state.split(':');
+      await db.clearPending(env, from.id);
+      const off = minutesAgoFromClock(+tm[1], +tm[2], now, env.TZ || 'Asia/Jerusalem');
+      if (kind === 'walk') return send(env, chat.id, v.lateDur(who, off));
+      const r = await saveLate(env, ctx, user, from.id, who, kind, off, now);
+      return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.ok ? r.notice : r.toast }));
     }
   }
 
@@ -152,6 +174,54 @@ async function onRegister(env, cq, ctx, origin) {
   return send(env, msg.chat.id, await v.panel(env, user, { isPrivate: true, origin, notice: 'אפשר להתחיל. /help מסביר הכול' }));
 }
 
+/* ---------- עדכון אחורה ---------- */
+
+// שומר ומודיע לשאר בני הבית. מחזיר את תוצאת הפעולה.
+async function saveLate(env, ctx, user, tgId, who, kind, off, now) {
+  const r = await act.logLate(env, who, kind, off, now);
+  if (r.ok) ctx.waitUntil(broadcast(env, `🕐 ${esc(MEMBER_BY_ID[user.member].name)} עדכן/ה אחורה\n${esc(r.notice)}`, { flag: 'notify_activity', exceptTgId: tgId }));
+  return r;
+}
+
+const num = (s) => parseInt(s, 10);
+
+async function onLate(env, cq, user, ctx, opts, now) {
+  const msg = cq.message;
+  const [type, ...a] = cq.data.split(':');
+  const answer = (text, alert = false) =>
+    tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
+  const who = a[0];
+  if (!MEMBER_BY_ID[who]) return answer('משהו השתבש, נסו שוב', true);
+  await db.clearPending(env, cq.from.id);
+
+  let view;
+  let toast = '';
+  if (type === 'lw') view = v.lateStart(who);
+  else if (type === 'lk') {
+    if (a[1] !== 'walk' && !LATE_KINDS.includes(a[1])) return answer('לא מוכר', true);
+    view = v.lateWhen(who, a[1]);
+  } else if (type === 'lx') {
+    await db.setPending(env, cq.from.id, `late:${who}:${a[1]}`, 0, now);
+    view = v.lateTimePrompt(who, a[1]);
+  } else if (type === 'lt') {
+    const off = num(a[2]);
+    if (a[1] === 'walk') view = v.lateDur(who, off);
+    else {
+      const r = await saveLate(env, ctx, user, cq.from.id, who, a[1], off, now);
+      toast = r.toast;
+      view = await v.panel(env, user, { ...opts, notice: r.ok ? r.notice : '' });
+    }
+  } else if (type === 'ld') view = v.lateWalkBuilder(who, num(a[1]), num(a[2]), 0, 0);
+  else if (type === 'lb') view = v.lateWalkBuilder(who, num(a[1]), num(a[2]), num(a[3]), num(a[4]));
+  else if (type === 'ls') {
+    const r = await act.walkLate(env, who, num(a[1]), num(a[2]), num(a[3]), num(a[4]), now);
+    toast = r.toast;
+    if (r.ok) ctx.waitUntil(broadcast(env, `🕐 ${esc(MEMBER_BY_ID[user.member].name)} עדכן/ה אחורה\n${esc(r.notice)}`, { flag: 'notify_activity', exceptTgId: cq.from.id }));
+    view = await v.panel(env, user, { ...opts, notice: r.ok ? r.notice : '' });
+  }
+  await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);
+}
+
 /* ---------- לחצנים ---------- */
 
 async function onCallback(env, cq, ctx, origin) {
@@ -170,6 +240,8 @@ async function onCallback(env, cq, ctx, origin) {
   const now = Date.now();
   const opts = { isPrivate, origin };
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
+
+  if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
 
   let view = null;
   let toast = '';
@@ -191,7 +263,10 @@ async function onCallback(env, cq, ctx, origin) {
     view = await v.panel(env, user, { ...opts, notice });
   } else if (type === 'm') {
     if (arg === 'menu') view = await v.panel(env, user, opts);
-    else if (arg === 'stars') view = await v.starsView(env);
+    else if (arg === 'late') {
+      await db.clearPending(env, from.id);
+      view = v.lateStart(user.member);
+    } else if (arg === 'stars') view = await v.starsView(env);
     else if (arg === 'today') view = await v.todayView(env);
     else if (arg === 'settings') view = await v.settingsView(env, user);
     else if (arg === 'undo') {
