@@ -211,8 +211,8 @@ export const setSetting = (env, key, value) =>
 
 export async function thresholds(env) {
   return {
-    mealNudgeMin: await getSetting(env, 'meal_nudge_min', DEFAULTS.mealNudgeMin),
-    intervalMin: await getSetting(env, 'interval_min', DEFAULTS.intervalMin),
+    mealNudgeMin: await getSetting(env, 'meal_nudge_min', 0), // 0 = אוטומטי
+    intervalMin: await getSetting(env, 'interval_min', 0),
   };
 }
 

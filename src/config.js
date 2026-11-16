@@ -41,8 +41,9 @@ export const DEFAULTS = {
   quietTo: 7, // ועד השעה הזו
 };
 
-export const MEAL_NUDGE_OPTIONS = [15, 20, 30, 45];
-export const INTERVAL_OPTIONS = [120, 150, 180, 240];
+// 0 = אוטומטי: לומד מההיסטוריה ומהגיל של בל
+export const MEAL_NUDGE_OPTIONS = [0, 15, 20, 30, 45];
+export const INTERVAL_OPTIONS = [0, 120, 150, 180, 240];
 
 // עדכון אחורה: מה אפשר לתעד בדיעבד, ואילו כפתורי זמן להציג (בדקות)
 export const LATE_KINDS = ['pee_home', 'poop_home', 'meal', 'cook'];

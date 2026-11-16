@@ -282,7 +282,7 @@ try {
   await post(cb(1001, 's:notify'));
   take();
   await post(cb(1001, 's:meal'));
-  assert.match(find(take(), 'editMessageText').text, /אחרי ארוחה: 30/);
+  assert.match(find(take(), 'editMessageText').text, /אחרי ארוחה: 15/);
   ok('מסך היום והגדרות');
 
   /* לוח הבקרה (API) */
@@ -788,6 +788,22 @@ try {
   await post(cb(1002, 'b:tip:0'));
   assert.ok(find(take(), 'editMessageText', /טיפ/));
   ok('הכול על בל: תעודה, משקל, חיברות, פקודות, תבנית חיסונים ודוח');
+
+  await post(cb(1002, 'b:ins'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /מה הנתונים אומרים/) && find(c, 'editMessageText', /אוטומטי/), 'ניתוח עם תזכורות אוטומטיות');
+  assert.ok(find(c, 'editMessageText', /לפי הגיל/), 'מרווח היציאות לפי הגיל של בל');
+  await post(cb(1001, 'm:settings'));
+  assert.ok(find(take(), 'editMessageText', /\(אוטומטי\)/), 'ההגדרות מציגות אוטומטי');
+  await post(cb(1001, 's:meal'));
+  assert.ok(find(take(), 'editMessageText', /20 דק׳/), 'לחיצה מחליפה לערך הבא');
+  await post(cb(1001, 's:meal'));
+  take();
+  await post(cb(1001, 's:meal'));
+  take();
+  await post(cb(1001, 's:meal'));
+  assert.ok(find(take(), 'editMessageText', /אוטומטי/), 'וחוזר לאוטומטי אחרי הערכים');
+  ok('תובנות ותזכורות אוטומטיות');
 
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {

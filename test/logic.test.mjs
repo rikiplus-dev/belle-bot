@@ -218,3 +218,27 @@ test('משקל וגיל', () => {
   assert.ok(TIPS.length >= 15);
   assert.equal(tipFor(-1), tipFor(TIPS.length - 1));
 });
+
+import { analyze, mealGaps } from '../src/insights.js';
+test('ניתוח תאונות ופער ארוחה', () => {
+  const tz = 'Asia/Jerusalem';
+  const day0 = Date.UTC(2026, 10, 1, 6); // 08:00 בישראל
+  const M = 60000;
+  const ev = [];
+  for (let d = 0; d < 6; d++) {
+    const t = day0 + d * 86400000;
+    ev.push({ ts: t, kind: 'meal' }, { ts: t + 20 * M, kind: 'pee_out' });
+  }
+  ev.push({ ts: day0 + 2 * 86400000 + 3 * 3600000, kind: 'pee_home' }); // תאונה אחה"צ
+  const now = day0 + 6 * 86400000 + 4 * 3600000;
+  const a = analyze(ev, now, tz);
+  assert.equal(a.out, 6);
+  assert.equal(a.home, 1);
+  assert.equal(a.outRate, 86);
+  assert.equal(a.byPart.morning + a.byPart.noon, 1);
+  assert.equal(a.streak, 4, 'ימים מאז התאונה');
+  assert.equal(a.gapN, 6);
+  assert.equal(a.gapMedian, 20);
+  assert.equal(mealGaps([{ ts: 0, kind: 'meal' }, { ts: 100 * M, kind: 'pee_out' }]).length, 0, 'מעל 90 דקות לא נספר');
+  assert.equal(analyze([], now, tz).streak, 0);
+});

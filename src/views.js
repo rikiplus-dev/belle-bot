@@ -5,6 +5,8 @@ import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
 import { onDutyMembers, daysText, clock } from './duty.js';
 import { LEVELS, CATEGORIES, FOODS, byLevel } from './foods.js';
+import { effectiveThresholds } from './insights.js';
+import { tipFor } from './tips.js';
 
 const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
 const name = (id) => (MEMBER_BY_ID[id] ? MEMBER_BY_ID[id].name : 'מישהו/י');
@@ -122,7 +124,7 @@ export const adminOnly = {
 };
 
 export async function settingsView(env, user) {
-  const t = await db.thresholds(env);
+  const t = await effectiveThresholds(env, Date.now());
   const duty = await db.listDuty(env);
   const nowOn = onDutyMembers(duty, Date.now(), tzOf(env));
   const dutyLines = ['<b>📅 שעות אחריות</b>', '<i>בשעות האלה רק מי שבאחריות מקבל תזכורות אילוף, עד שהוא מוציא את בל</i>'];
@@ -138,8 +140,9 @@ export async function settingsView(env, user) {
     `הודעות על טיולים של אחרים: ${onoff(user.notify_activity)}`,
     '',
     '<b>לכל הבית</b>',
-    `תזכורת אחרי ארוחה: ${t.mealNudgeMin} דק׳`,
-    `תזכורת אם לא יצאו: כל ${dur(t.intervalMin * 60000)}`,
+    `תזכורת אחרי ארוחה: ${t.mealNudgeMin} דק׳${t.mealAuto ? ' (אוטומטי)' : ''}`,
+    `תזכורת אם לא יצאו: כל ${dur(t.intervalMin * 60000)}${t.intervalAuto ? ' (אוטומטי)' : ''}`,
+    '<i>אוטומטי: לומד מההיסטוריה ומהגיל של בל. לחיצה על הכפתור מחליפה בין אוטומטי לערכים קבועים.</i>',
     '',
     '<i>תזכורות לא נשלחות בין 22:00 ל-07:00</i>',
     '',
@@ -148,8 +151,8 @@ export async function settingsView(env, user) {
   const kb = [
     [btn(`תזכורות: ${user.notify ? 'כבה' : 'הפעל'}`, 's:notify')],
     [btn(`הודעות על טיולים: ${user.notify_activity ? 'כבה' : 'הפעל'}`, 's:activity')],
-    [btn(`אחרי ארוחה: ${t.mealNudgeMin} דק׳ ⟳`, 's:meal')],
-    [btn(`אם לא יצאו: ${dur(t.intervalMin * 60000)} ⟳`, 's:interval')],
+    [btn(`אחרי ארוחה: ${t.mealAuto ? 'אוטומטי' : t.mealNudgeMin + ' דק׳'} ⟳`, 's:meal')],
+    [btn(`אם לא יצאו: ${t.intervalAuto ? 'אוטומטי' : dur(t.intervalMin * 60000)} ⟳`, 's:interval')],
     ...duty.slice(0, 8).map((d) => [btn(`🗑 ${name(d.member)} · ${daysText(d.days)} · ${clock(d.start_min)}-${clock(d.end_min)}`, `s:dd:${d.id}`)]),
     [btn('➕ הוספת שעות אחריות', 's:da')],
     [btn('⬅️ חזרה', 'm:menu')],
@@ -343,6 +346,8 @@ export async function weeklyText(env, now) {
   lines.push('');
   const tot = out + home;
   if (tot) lines.push(`🌳 בחוץ ${out}  ·  🏠 בבית ${home}  (${Math.round((out / tot) * 100)}% בחוץ)`);
+  const tip = tipFor(Math.floor(now / (7 * 86400000)));
+  lines.push('', `💡 <b>${esc(tip.t)}</b>`, esc(tip.b));
   return lines.join('\n');
 }
 

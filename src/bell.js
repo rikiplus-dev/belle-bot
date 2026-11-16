@@ -6,6 +6,7 @@ import { parts, startOfDay } from './time.js';
 import { parseDate } from './parse.js';
 import { fmtDate } from './health.js';
 import { TIPS, FUN, tipFor, funFor, tipOfDay } from './tips.js';
+import { insightsView } from './insights.js';
 
 const DAY = 86400000;
 const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
@@ -95,7 +96,8 @@ export async function hub(env, user, now, notice = '') {
   const rows = [
     [btn('📇 תעודת בל', 'b:card'), btn('⚖️ משקל', 'b:w')],
     [btn('🎓 חיברות', 'b:soc'), btn('🗣 פקודות', 'b:cmd')],
-    [btn('💡 טיפים וכיף', 'b:tip:0'), btn('🍖 מה מותר לאכול', 'f:home')],
+    [btn('💡 טיפים וכיף', 'b:tip:0'), btn('📈 ניתוח ותובנות', 'b:ins')],
+    [btn('🍖 מה מותר לאכול', 'f:home')],
   ];
   if (isAdmin(user)) {
     rows.push([btn('🩺 בריאות', 'h:home'), btn('💉 תבנית חיסונים', 'b:vt')]);
@@ -390,6 +392,8 @@ export async function onBellCallback(env, data, user, now) {
       await db.setProgress(env, 'cmd', it[0], next, now, user.member);
       return { view: await cmdView(env), toast: next === 3 ? '🌳 אמינה! כל הכבוד' : LEVELS[next] };
     }
+    case 'ins':
+      return { view: await insightsView(env, now) };
     case 'tip':
       return { view: tipView(num(a1) || 0, now) };
     case 'vt':

@@ -7,6 +7,7 @@ import { parts, startOfWeek, dur } from './time.js';
 import { weeklyText } from './views.js';
 import { healthCron } from './health.js';
 import { onDutyMembers } from './duty.js';
+import { effectiveThresholds, analyze, STREAK_MILESTONES } from './insights.js';
 
 const MIN = 60000;
 
@@ -63,7 +64,21 @@ export async function runCron(env, now = Date.now()) {
     await db.pruneUpdates(env, now - 2 * 86400000);
   }
   if (quiet) return out;
-  const t = await db.thresholds(env);
+
+  // חגיגה על רצף ימים בלי תאונה בבית (פעם אחת לכל אבן דרך)
+  if (p.h >= 9) {
+    await step(env, 'רצף ימים', async () => {
+      const a = analyze(await db.eventsBetween(env, now - 120 * 86400000, now), now, tz);
+      const m = [...STREAK_MILESTONES].reverse().find((x) => a.streak >= x);
+      if (!m || (await db.reminderSent(env, `streak:${m}:${a.lastHome || 0}`))) return;
+      const key = `streak:${m}:${a.lastHome || 0}`;
+      if (!(await db.claimReminder(env, key, now))) return;
+      const n = await broadcast(env, `🏆 <b>${m} ימים בלי תאונה בבית!</b>\nכל הכבוד לכולם, ולבל 🐶🎉`, { flag: 'notify_activity' });
+      if (!n) await db.unclaimReminder(env, key);
+      out.streak = n;
+    });
+  }
+  const t = await effectiveThresholds(env, now);
   // בשעות אחריות רק מי שבאחריות מקבל תזכורות אילוף. אם הוא עוד לא מחובר לבוט, כולם מקבלים.
   const onDuty = onDutyMembers(await db.listDuty(env), now, tz);
   const users = await db.listUsers(env);
