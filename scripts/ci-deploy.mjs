@@ -6,9 +6,18 @@ import { PLACEHOLDER, findDatabaseId, withDatabaseId, parseWorkerUrl, missingEnv
 import { setupTelegram } from './telegram-setup.mjs';
 
 const DB_NAME = 'bellebot';
+// מנקה רווחים ושורות חדשות שנדבקים בטעות יחד עם הסודות
+for (const k of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'BOT_TOKEN', 'WEBHOOK_SECRET', 'FAMILY_CODE', 'WORKER_URL']) {
+  if (process.env[k]) process.env[k] = process.env[k].trim();
+}
 const missing = missingEnv(process.env);
 if (missing.length) {
   console.error(`חסרים סודות ב-GitHub (Settings > Secrets and variables > Actions): ${missing.join(', ')}`);
+  process.exit(1);
+}
+
+if (missing.length === 0 && !/^[0-9a-f]{32}$/i.test(process.env.CLOUDFLARE_ACCOUNT_ID)) {
+  console.error(`CLOUDFLARE_ACCOUNT_ID לא נראה תקין: צריך 32 תווים (a-f ומספרים), ויש ${process.env.CLOUDFLARE_ACCOUNT_ID.length}.`);
   process.exit(1);
 }
 
