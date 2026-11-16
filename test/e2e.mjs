@@ -223,6 +223,7 @@ try {
   assert.ok(edited.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'a:walk_end'));
   const toOther = c.find((x) => x.method === 'sendMessage' && x.chat_id === 1002);
   assert.ok(toOther && /טיול/.test(toOther.text), 'שולי מקבלת הודעה');
+  assert.equal(toOther.disable_notification, true, 'הודעת פעילות נשלחת בשקט');
   assert.ok(!c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001), 'ריקי לא מקבלת הודעה על עצמה');
   ok('התחלת טיול: לוח עם כפתורי בחוץ והודעה לאחרים');
 
@@ -238,12 +239,14 @@ try {
   c = take();
   assert.match(toastOf(c), /חזרנו/);
   assert.match(toastOf(c), /⭐ \+1/);
-  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1002 && /ריקי הוציאה את בל לטיול/.test(x.text) && /בל עשתה/.test(x.text)), 'שולי מקבלת סיכום');
+  assert.ok(c.find((x) => x.method === 'editMessageText' && x.chat_id === 1002 && /ריקי הוציאה את בל לטיול/.test(x.text) && /בל עשתה/.test(x.text)), 'שולי מקבלת סיכום באותה הודעה');
   ok('סיום טיול: סיכום, כוכב והודעה');
 
   /* בבית ואוכל */
   await post(cb(1001, 'a:pee_home'));
-  assert.match(find(take(), 'editMessageText').text, /תאונה אחרונה/);
+  const afterHome = find(take(), 'editMessageText');
+  assert.match(afterHome.text, /תאונה אחרונה/);
+  assert.match(JSON.stringify(afterHome.reply_markup), /בטל: 🏠/, 'כפתור הביטול אומר מה יבוטל');
   await post(cb(1001, 'a:cook'));
   await post(cb(1001, 'a:meal'));
   take();
@@ -428,6 +431,9 @@ try {
   const shuliPanel = find(c, 'sendMessage', /בל/);
   assert.ok(!JSON.stringify(shuliPanel.reply_markup).includes('h:home'), 'שולי לא רואה כפתור בריאות');
   assert.ok(!JSON.stringify(shuliPanel.reply_markup).includes('m:settings'), 'שולי לא רואה כפתור הגדרות');
+  await post(cb(1002, 'm:more'));
+  const shuliMore = JSON.stringify(find(take(), 'editMessageText').reply_markup);
+  assert.ok(!shuliMore.includes('h:home') && !shuliMore.includes('m:settings'), 'שולי לא רואה בריאות והגדרות בתפריט עוד');
   await post(cb(1002, 'h:home'));
   assert.match(toastOf(take()), /אמתי וריקי/);
   await post(cb(1002, 'm:settings'));
@@ -436,8 +442,8 @@ try {
   assert.match(find(take(), 'sendMessage').text, /אמתי וריקי/);
   await post(cb(1002, 's:notify'));
   take();
-  await post(cb(1001, 'm:menu'));
-  assert.ok(JSON.stringify(find(take(), 'editMessageText').reply_markup).includes('h:home'), 'ריקי רואה כפתור בריאות');
+  await post(cb(1001, 'm:more'));
+  assert.ok(JSON.stringify(find(take(), 'editMessageText').reply_markup).includes('h:home'), 'ריקי רואה כפתור בריאות בתפריט עוד');
   ok('בריאות והגדרות סגורות לשאר בני הבית');
 
   /* תרופות עם תזכורות */
@@ -629,7 +635,7 @@ try {
   take();
   await post(cb(1002, 'a:walk_end'));
   c = take();
-  assert.ok(c.find((x) => x.method === 'sendMessage' && x.chat_id === 1001 && /בל עשתה קקי, לא פיפי/.test(x.text)), 'הודעת סיכום עם פיפי וקקי');
+  assert.ok(c.find((x) => x.method === 'editMessageText' && x.chat_id === 1001 && /בל עשתה קקי, לא פיפי/.test(x.text)), 'הודעת סיכום עם פיפי וקקי, באותה הודעה');
   ok('הודעות טיול לכולם: "שולי הוציאה את בל לטיול, עשתה קקי לא פיפי"');
 
   /* עידוד מתוך ההודעה על הטיול */
@@ -701,7 +707,9 @@ try {
   take();
   await post(msg(1001, '/menu'));
   c = take();
-  assert.ok(JSON.stringify(c).includes('f:home'), 'כפתור המזון בלוח הראשי');
+  assert.ok(JSON.stringify(c).includes('m:more'), 'לוח ראשי מקוצר עם כפתור עוד');
+  await post(cb(1001, 'm:more'));
+  assert.ok(JSON.stringify(take()).includes('f:home'), 'כפתור המזון בתפריט עוד');
   await post(cb(1001, 'f:home'));
   c = take();
   assert.ok(find(c, 'editMessageText', /מה מותר/), 'מסך המזון נפתח');

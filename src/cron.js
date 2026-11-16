@@ -62,6 +62,7 @@ export async function runCron(env, now = Date.now()) {
   if (p.h === 3) {
     await db.pruneReminders(env, now - 14 * 86400000);
     await db.pruneUpdates(env, now - 2 * 86400000);
+    await db.pruneWalkMsgs(env, ((await db.maxWalkId(env)) || 0) - 200);
   }
   if (quiet) return out;
 

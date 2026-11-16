@@ -42,20 +42,29 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
   }
   rows.push([btn('🏠 פיפי בבית', 'a:pee_home'), btn('🏠 קקי בבית', 'a:poop_home')]);
   rows.push([btn('🍽 בל אכלה', 'a:meal'), btn('👩‍🍳 הכנתי אוכל', 'a:cook')]);
-  rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('↩️ ביטול', 'm:undo')]);
-  rows.push([btn('🕐 שכחתי לעדכן', 'm:late'), btn('💌 עידוד', 'c:home')]);
-  rows.push([btn('🐶 הכול על בל', 'b:hub'), btn('🍖 מה מותר?', 'f:home')]);
-  const last = [];
-  if (isPrivate && origin) last.push({ text: '📊 לוח בקרה', web_app: { url: origin } });
-  if (isAdmin(user)) {
-    rows.push([btn('🩺 בריאות', 'h:home'), btn('⚙️ הגדרות', 'm:settings')]);
+  const undo = await db.peekUndo(env, user.member, now);
+  if (undo) {
+    const what = undo.type === 'walk' ? '🚶 טיול' : `${KINDS[undo.kind].emoji} ${KINDS[undo.kind].label}`;
+    rows.push([btn(`↩️ בטל: ${what} ${hhmm(undo.ts, tz)}`, 'm:undo')]);
   }
-  if (last.length) rows.push(last);
+  rows.push([btn('⭐ כוכבים', 'm:stars'), btn('📋 היום', 'm:today'), btn('➕ עוד', 'm:more')]);
+  if (isPrivate && origin) rows.push([{ text: '📊 לוח בקרה', web_app: { url: origin } }]);
 
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: rows } };
 }
 
 const back = [[btn('⬅️ חזרה', 'm:menu')]];
+
+// תפריט "עוד": כל מה שלא נדרש בכל יציאה
+export function moreMenu(user) {
+  const rows = [
+    [btn('🐶 הכול על בל', 'b:hub'), btn('🍖 מה מותר לאכול', 'f:home')],
+    [btn('🕐 שכחתי לעדכן', 'm:late'), btn('💌 עידוד', 'c:home')],
+  ];
+  if (isAdmin(user)) rows.push([btn('🩺 בריאות', 'h:home'), btn('⚙️ הגדרות', 'm:settings')]);
+  rows.push([btn('⬅️ חזרה ללוח', 'm:menu')]);
+  return { text: `➕ <b>עוד</b>\nמה תרצו לעשות?`, reply_markup: { inline_keyboard: rows } };
+}
 
 /* ---------- כוכבים ---------- */
 

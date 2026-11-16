@@ -129,6 +129,23 @@ export async function undoLast(env, member, now) {
   return null;
 }
 
+// מה יבוטל בלחיצה על ביטול (בלי לבטל בפועל)
+export async function peekUndo(env, member, now) {
+  const limit = now - 15 * 60000;
+  const ev = await q(env, 'SELECT * FROM events WHERE member=? AND ts>=? ORDER BY ts DESC, id DESC LIMIT 1', member, limit).first();
+  const wk = await q(env, 'SELECT * FROM walks WHERE member=? AND ended_at IS NULL AND started_at>=? ORDER BY started_at DESC LIMIT 1', member, limit).first();
+  if (wk && (!ev || wk.started_at > ev.ts)) return { type: 'walk', ts: wk.started_at };
+  if (ev) return { type: 'event', kind: ev.kind, ts: ev.ts };
+  return null;
+}
+
+export const setPanelMsg = (env, tgId, msgId) => q(env, 'UPDATE users SET panel_msg=? WHERE tg_id=?', msgId, tgId).run();
+export const saveWalkMsg = (env, walkId, chatId, msgId) =>
+  q(env, 'INSERT OR REPLACE INTO walk_msgs(walk_id,chat_id,message_id) VALUES(?,?,?)', walkId, chatId, msgId).run();
+export const walkMsgs = async (env, walkId) => (await q(env, 'SELECT * FROM walk_msgs WHERE walk_id=?', walkId).all()).results;
+export const maxWalkId = async (env) => (await q(env, 'SELECT MAX(id) m FROM walks').first())?.m || 0;
+export const pruneWalkMsgs = (env, minWalkId) => q(env, 'DELETE FROM walk_msgs WHERE walk_id<?', minWalkId).run();
+
 export async function deleteEvent(env, id, member) {
   const r = await q(env, 'DELETE FROM events WHERE id=? AND member=?', id, member).run();
   return r.meta.changes > 0;

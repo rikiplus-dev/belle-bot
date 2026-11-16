@@ -4,8 +4,7 @@ import * as act from './actions.js';
 import { verifyInitData } from './auth.js';
 import { DOG, MEMBERS, MEMBER_BY_ID, KINDS } from './config.js';
 import { startOfDay, startOfWeek, shortDay } from './time.js';
-import { broadcast } from './notify.js';
-import { walkStartedText, walkEndedText, cheerMarkup } from './views.js';
+import { announceWalkStart, announceWalkEnd } from './notify.js';
 import { isAdmin } from './config.js';
 import { healthState } from './health.js';
 
@@ -123,10 +122,10 @@ export async function handleApi(request, env, ctx) {
 
   if (path === '/api/walk/start') {
     result = await act.walkStart(env, user.member, now);
-    if (result.ok) ctx.waitUntil(broadcast(env, walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: user.tg_id, markup: cheerMarkup(user.member) }));
+    if (result.ok) ctx.waitUntil(announceWalkStart(env, user, result.walk.id));
   } else if (path === '/api/walk/end') {
     result = await act.walkEnd(env, user.member, now);
-    if (result.ok) ctx.waitUntil(broadcast(env, walkEndedText(result), { flag: 'notify_activity', exceptTgId: user.tg_id, markup: cheerMarkup(user.member) }));
+    if (result.ok) ctx.waitUntil(announceWalkEnd(env, user, result));
   } else if (path === '/api/log') {
     result = await act.log(env, user.member, String(body.kind || ''), now, 'app');
   } else if (path === '/api/undo') {

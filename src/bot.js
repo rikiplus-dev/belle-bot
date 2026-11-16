@@ -3,7 +3,7 @@ import * as db from './db.js';
 import * as act from './actions.js';
 import * as v from './views.js';
 import { tgSafe, esc, tgDocument } from './telegram.js';
-import { broadcast } from './notify.js';
+import { broadcast, announceWalkStart, announceWalkEnd } from './notify.js';
 import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
 import * as wz from './wizards.js';
@@ -32,6 +32,18 @@ const edit = (env, msg, view) =>
     parse_mode: 'HTML',
     reply_markup: view.reply_markup,
   });
+
+// הלוח הראשי: הודעה אחת מוצמדת. פקודה חדשה מוחקת את הישנה ושולחת לוח חדש בתחתית הצ'אט.
+async function showPanel(env, chat, user, view) {
+  if (chat.type !== 'private') return send(env, chat.id, view);
+  if (user.panel_msg) await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: user.panel_msg });
+  const m = await send(env, chat.id, view);
+  if (m && m.message_id) {
+    await db.setPanelMsg(env, user.tg_id, m.message_id);
+    await tgSafe(env, 'pinChatMessage', { chat_id: chat.id, message_id: m.message_id, disable_notification: true });
+  }
+  return m;
+}
 
 const plain = (env, chatId, text) => tgSafe(env, 'sendMessage', { chat_id: chatId, text, parse_mode: 'HTML' });
 
@@ -67,11 +79,11 @@ async function onText(env, msg, ctx, origin) {
     switch (cmd.name) {
       case 'start':
       case 'menu':
-        return send(env, chat.id, await v.panel(env, user, opts));
+        return showPanel(env, chat, user, await v.panel(env, user, opts));
       case 'walk': {
         const r = await act.walkStart(env, user.member, now);
-        if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
-        return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
+        if (r.ok) ctx.waitUntil(announceWalkStart(env, user, r.walk.id));
+        return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
       }
       case 'cheer':
         await db.clearPending(env, from.id);
@@ -107,7 +119,7 @@ async function onText(env, msg, ctx, origin) {
       }
       case 'undo': {
         const r = await act.undo(env, user.member, now);
-        return send(env, chat.id, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
+        return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice: r.notice || r.toast }));
       }
       case 'help':
         return plain(env, chat.id, v.helpText);
@@ -662,10 +674,10 @@ async function onCallback(env, cq, ctx, origin) {
     let r;
     if (arg === 'walk_start') {
       r = await act.walkStart(env, user.member, now);
-      if (r.ok) ctx.waitUntil(broadcast(env, v.walkStartedText(user.member), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
+      if (r.ok) ctx.waitUntil(announceWalkStart(env, user, r.walk.id));
     } else if (arg === 'walk_end') {
       r = await act.walkEnd(env, user.member, now);
-      if (r.ok) ctx.waitUntil(broadcast(env, v.walkEndedText(r), { flag: 'notify_activity', exceptTgId: from.id, markup: v.cheerMarkup(user.member) }));
+      if (r.ok) ctx.waitUntil(announceWalkEnd(env, user, r));
     } else {
       r = await act.log(env, user.member, arg, now);
     }
@@ -677,7 +689,8 @@ async function onCallback(env, cq, ctx, origin) {
     else if (arg === 'late') {
       await db.clearPending(env, from.id);
       view = v.lateStart(user.member);
-    } else if (arg === 'stars') view = await v.starsView(env);
+    } else if (arg === 'more') view = v.moreMenu(user);
+    else if (arg === 'stars') view = await v.starsView(env);
     else if (arg === 'today') view = await v.todayView(env);
     else if (arg === 'settings') {
       await db.clearPending(env, from.id);
