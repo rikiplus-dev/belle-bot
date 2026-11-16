@@ -52,13 +52,6 @@ export function medSlots(med, now, tz) {
 
 /* ---------- פעולות ---------- */
 
-export async function addMedFromText(env, member, text, now) {
-  const r = parseMedLine(text, now, tzOf(env));
-  if (r.error) return { ok: false, error: r.error };
-  const id = await db.addMed(env, { ...r, member }, now);
-  return { ok: true, id, med: r };
-}
-
 export async function giveDose(env, medId, day, time, status, member, now) {
   const med = await db.getMed(env, medId);
   if (!med) return { ok: false, text: 'התרופה לא נמצאה' };
@@ -163,21 +156,6 @@ export async function logView(env) {
     reply_markup: { inline_keyboard: [[btn('➕ אירוע שהיה', 'hw:new:past'), btn('↩️ מחיקת האחרון שלי', 'h:undo')], back()] },
   };
 }
-
-export const medPrompt = () => ({
-  text: [
-    '💊 <b>תרופה חדשה</b>',
-    '',
-    'שלחו הודעה אחת בפורמט:',
-    '<code>שם | מינון | שעות | כמה זמן</code>',
-    '',
-    'כמה זמן לא חובה. בלי זה התרופה קבועה.',
-    'למשל:',
-    '<code>אמוקסיצילין | חצי כדור | 08:00 20:00 | 7 ימים</code>',
-    '<code>ויטמין | טיפה אחת | 09:00</code>',
-  ].join('\n'),
-  reply_markup: { inline_keyboard: [back()] },
-});
 
 export function medReminderText(med, time, second) {
   return `${second ? '⏰ <b>תזכורת שנייה</b>\n' : ''}💊 <b>${esc(med.name)}</b> ל${esc(DOG)}\nמינון: ${esc(med.dose)}\nשעה: ${time}`;

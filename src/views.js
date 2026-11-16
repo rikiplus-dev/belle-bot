@@ -225,23 +225,6 @@ export function lateWalkBuilder(who, off, d, pee, poop) {
   };
 }
 
-export const dutyPrompt = () => ({
-  text: [
-    '📅 <b>שעות אחריות</b>',
-    '',
-    'שלחו הודעה אחת בפורמט:',
-    '<code>שם | ימים | שעות</code>',
-    '',
-    'ימים: <code>א-ה</code>, <code>כל יום</code>, <code>סופש</code> או אותיות מופרדות כמו <code>א,ג,ה</code>',
-    'שעות: <code>14:00-18:00</code>. אם הסיום קטן מההתחלה זה נמשך עד הבוקר.',
-    '',
-    'למשל:',
-    '<code>שולי | א-ה | 14:00-18:00</code>',
-    '<code>ריקי | כל יום | 20:00-07:00</code>',
-  ].join('\n'),
-  reply_markup: { inline_keyboard: [[btn('⬅️ חזרה', 'm:settings')]] },
-});
-
 /* ---------- עידוד וסטיקרים ---------- */
 
 export function cheerPick(user) {

@@ -6,7 +6,7 @@ import { tgSafe, esc } from './telegram.js';
 import { broadcast } from './notify.js';
 import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
-import { parseDutyLine } from './duty.js';
+import * as wz from './wizards.js';
 import { CHEERS } from './config.js';
 import { minutesAgoFromClock, startOfDay } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
@@ -112,15 +112,6 @@ async function onText(env, msg, ctx, origin) {
     }
   }
 
-  // שעות אחריות חדשות (הגדרות, רק לאמתי וריקי)
-  if (pend && pend.state === 'dutyadd' && isAdmin(user)) {
-    const r = parseDutyLine(text);
-    if (r.error) return plain(env, chat.id, `${esc(r.error)}\nנסו שוב, או שלחו /settings כדי לצאת.`);
-    await db.addDuty(env, r);
-    await db.clearPending(env, from.id);
-    return send(env, chat.id, await v.settingsView(env, user));
-  }
-
   // שאלון אירוע רפואי: שלב שמחכה להקלדה
   if (pend && pend.state.startsWith('hw:') && isAdmin(user)) {
     const d = await hl.getDraft(env, from.id);
@@ -134,15 +125,15 @@ async function onText(env, msg, ctx, origin) {
     }
   }
 
-  // הוספת תרופה בהודעה אחת
-  if (pend && pend.state === 'medadd' && isAdmin(user)) {
-    if (now - pend.updated_at > 15 * 60000) {
+  // שאלון תרופה: שלב שמחכה להקלדה (שם או מינון משלכם)
+  if (pend && pend.state.startsWith('mw:') && isAdmin(user)) {
+    const d = await wz.getWiz(env, from.id, 'mw');
+    if (!d || now - d.updated_at > 30 * 60000) {
       await db.clearPending(env, from.id);
-    } else {
-      const r = await hl.addMedFromText(env, user.member, text, now);
-      if (!r.ok) return plain(env, chat.id, `${esc(r.error)}\nנסו שוב, או שלחו /health כדי לצאת.`);
-      await db.clearPending(env, from.id);
-      return send(env, chat.id, await hl.healthHome(env, now, `💊 נוספה תרופה: ${r.med.name} · ${r.med.dose} · ${r.med.times.join(' ')}`));
+    } else if (d.a) {
+      const r = wz.medText(d, text);
+      if (r.error) return plain(env, chat.id, esc(r.error));
+      return send(env, chat.id, await advanceMed(env, user, r.draft, now));
     }
   }
 
@@ -441,8 +432,7 @@ async function onHealth(env, cq, user, now) {
   else if (act2 === 'log') view = await hl.logView(env);
   else if (act2 === 'due') view = await hl.dueView(env, now);
   else if (act2 === 'medadd') {
-    await db.setPending(env, cq.from.id, 'medadd', 0, now);
-    view = hl.medPrompt();
+    view = await advanceMed(env, user, wz.medStart(), now);
   } else if (act2 === 'stop') {
     const ok = await db.stopMed(env, num(parts[2]));
     toast = ok ? '⏹ התרופה הופסקה' : 'כבר הופסקה';
@@ -453,6 +443,51 @@ async function onHealth(env, cq, user, now) {
     view = await hl.logView(env);
   }
   await Promise.all([answer(toast), view ? edit(env, msg, view) : null]);
+}
+
+/* ---------- שאלונים: שעות אחריות ותרופה ---------- */
+
+async function advanceDuty(env, user, draft, now) {
+  const view = wz.dutyView(draft);
+  if (view) {
+    await wz.saveWiz(env, user.tg_id, 'dw', draft, now);
+    return view;
+  }
+  await db.clearPending(env, user.tg_id);
+  await wz.dutySave(env, draft);
+  return v.settingsView(env, user);
+}
+
+async function advanceMed(env, user, draft, now) {
+  const view = wz.medView(draft);
+  if (view) {
+    await wz.saveWiz(env, user.tg_id, 'mw', draft, now);
+    return view;
+  }
+  await db.clearPending(env, user.tg_id);
+  const m = await wz.medSave(env, draft, user.member, now);
+  return hl.healthHome(env, now, `💊 נוספה תרופה: ${m.name} · ${m.dose} · ${m.times.join(' ')}`);
+}
+
+async function onWizard(env, cq, user, now) {
+  const msg = cq.message;
+  const answer = (text, alert = false) =>
+    tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) });
+  if (!isAdmin(user)) return answer('ההגדרות והבריאות מנוהלות על ידי אמתי וריקי', true);
+  const [prefix, field, value] = cq.data.split(':');
+  const isDuty = prefix === 'dw';
+  if (field === 'cancel') {
+    await db.clearPending(env, cq.from.id);
+    return Promise.all([answer('בוטל'), edit(env, msg, isDuty ? await v.settingsView(env, user) : await hl.healthHome(env, now))]);
+  }
+  const d = await wz.getWiz(env, cq.from.id, prefix);
+  if (!d || now - d.updated_at > 30 * 60000) {
+    await db.clearPending(env, cq.from.id);
+    return Promise.all([answer('השאלון פג תוקף, מתחילים מחדש', true), edit(env, msg, isDuty ? await v.settingsView(env, user) : await hl.healthHome(env, now))]);
+  }
+  const r = isDuty ? wz.dutyChoice(d, field, value) : wz.medChoice(d, field, value);
+  if (r.error) return answer(r.error, true);
+  return Promise.all([answer(), edit(env, msg, isDuty ? await advanceDuty(env, user, r.draft, now) : await advanceMed(env, user, r.draft, now))]);
 }
 
 /* ---------- לחצנים ---------- */
@@ -475,6 +510,7 @@ async function onCallback(env, cq, ctx, origin) {
   const [type, arg] = [data.slice(0, data.indexOf(':')), data.slice(data.indexOf(':') + 1)];
 
   if (/^l[wkxtdbs]:/.test(data)) return onLate(env, cq, user, ctx, opts, now);
+  if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);
   if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {
@@ -525,8 +561,7 @@ async function onCallback(env, cq, ctx, origin) {
       const t = await db.thresholds(env);
       await db.setSetting(env, 'interval_min', v.nextOption(INTERVAL_OPTIONS, t.intervalMin));
     } else if (arg === 'da') {
-      await db.setPending(env, from.id, 'dutyadd', 0, now);
-      view = v.dutyPrompt();
+      view = await advanceDuty(env, user, wz.dutyStart(), now);
     } else if (arg.startsWith('dd:')) {
       toast = (await db.deleteDuty(env, num(arg.slice(3)))) ? 'שעות האחריות נמחקו' : 'כבר נמחק';
     }
