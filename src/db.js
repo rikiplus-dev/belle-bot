@@ -328,3 +328,43 @@ export async function addDuty(env, d) {
   return r.meta.last_row_id;
 }
 export const deleteDuty = async (env, id) => (await q(env, 'DELETE FROM duty WHERE id=?', id).run()).meta.changes > 0;
+
+/* ---------- תעודת בל: פרטים, משקל והתקדמות ---------- */
+
+export const getProfile = async (env) => {
+  const rows = (await q(env, "SELECT key, value FROM settings WHERE key LIKE 'dog:%'").all()).results;
+  return Object.fromEntries(rows.map((r) => [r.key.slice(4), r.value]));
+};
+export const setProfileField = (env, field, value) =>
+  value === null || value === ''
+    ? q(env, 'DELETE FROM settings WHERE key=?', `dog:${field}`).run()
+    : q(env, 'INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', `dog:${field}`, String(value)).run();
+
+export const addWeight = async (env, ts, grams, member) =>
+  (await q(env, 'INSERT INTO weights(ts,grams,member) VALUES(?,?,?)', ts, grams, member).run()).meta.last_row_id;
+export const recentWeights = async (env, limit = 10) =>
+  (await q(env, 'SELECT * FROM weights ORDER BY ts DESC, id DESC LIMIT ?', limit).all()).results;
+export const deleteLastWeight = async (env) => {
+  const r = await q(env, 'SELECT id FROM weights ORDER BY id DESC LIMIT 1').first();
+  if (r) await q(env, 'DELETE FROM weights WHERE id=?', r.id).run();
+  return !!r;
+};
+
+export const progressAll = async (env, kind) =>
+  Object.fromEntries((await q(env, 'SELECT * FROM progress WHERE kind=?', kind).all()).results.map((r) => [r.item, r]));
+export const setProgress = (env, kind, item, level, at, member) =>
+  q(
+    env,
+    `INSERT INTO progress(kind,item,level,at,member) VALUES(?,?,?,?,?)
+     ON CONFLICT(kind,item) DO UPDATE SET level=excluded.level, at=excluded.at, member=excluded.member`,
+    kind,
+    item,
+    level,
+    at,
+    member,
+  ).run();
+
+export const healthByTitle = (env, title) => q(env, 'SELECT * FROM health_log WHERE title=? LIMIT 1', title).first();
+export const allHealthDone = async (env) => (await q(env, 'SELECT * FROM health_log WHERE done=1 ORDER BY at ASC, id ASC').all()).results;
+export const eventsBetween = async (env, from, to) =>
+  (await q(env, 'SELECT * FROM events WHERE ts>=? AND ts<? ORDER BY ts ASC', from, to).all()).results;

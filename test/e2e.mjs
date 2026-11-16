@@ -737,6 +737,58 @@ try {
   assert.ok(find(c, 'sendMessage', /אסור לבל/), '/food עם שם מזון');
   ok('מאגר מזון: תפריט, רשימות, בדיקה חופשית, לא מוכר ופקודה');
 
+  /* הכול על בל: תעודה, משקל, חיברות, פקודות, תבנית חיסונים ודוח */
+  take();
+  await post(cb(1001, 'b:hub'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /הכול על בל/) && JSON.stringify(c).includes('b:rep'), 'מרכז בל למנהלת, עם דוח');
+  await post(cb(1002, 'b:hub'));
+  assert.ok(!JSON.stringify(take()).includes('b:rep'), 'שולי לא רואה דוח ותבנית');
+  await post(cb(1002, 'b:rep'));
+  assert.match(toastOf(take()), /אמתי וריקי/);
+  await post(cb(1002, 'b:bdw:10'));
+  assert.match(toastOf(take()), /אמתי וריקי/, 'שולי לא משנה תעודה');
+  await post(cb(1001, 'b:bdw:10'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /בת 10 שבועות/), 'תאריך לידה לפי גיל');
+  await post(cb(1001, 'b:e:chip'));
+  take();
+  await post(msg(1001, '985112345678901'));
+  assert.ok(find(take(), 'sendMessage', /985112345678901/), 'פרט נשמר בתעודה');
+  await post(cb(1001, 'b:wa'));
+  take();
+  await post(cb(1001, 'b:ww'));
+  take();
+  await post(msg(1001, '2.4'));
+  assert.ok(find(take(), 'sendMessage', /2\.4 ק״ג/), 'משקל מוקלד');
+  await post(cb(1002, 'b:wa'));
+  c = take();
+  assert.ok(JSON.stringify(c).includes('b:wn:2500'), 'כפתורי משקל לפי הקודם');
+  await post(cb(1002, 'b:wn:2600'));
+  assert.ok(find(take(), 'editMessageText', /2\.6 ק״ג/));
+  await post(msg(1001, '/weight 2.8'));
+  assert.ok(find(take(), 'sendMessage', /2\.8 ק״ג/), '/weight מהיר');
+  await post(msg(1001, '/weight בלה'));
+  assert.ok(find(take(), 'sendMessage', /כתבו משקל/), 'קלט לא תקין');
+  await post(cb(1002, 'b:st:0'));
+  assert.ok(find(take(), 'editMessageText', /חיברות: 1\//), 'חיברות מסומנת');
+  await post(cb(1002, 'b:ct:1'));
+  await post(cb(1002, 'b:ct:1'));
+  assert.ok(find(take(), 'editMessageText', /מבינה/), 'פקודה מתקדמת');
+  await post(cb(1001, 'b:vt'));
+  c = take();
+  assert.ok(find(c, 'editMessageText', /תבנית חיסונים/) && JSON.stringify(c).includes('b:vta'), 'תבנית חיסונים עם הוספה');
+  await post(cb(1001, 'b:vta'));
+  assert.match(toastOf(take()), /נוספו/);
+  await post(cb(1001, 'b:vta'));
+  assert.match(toastOf(take()), /אין מה/, 'לא מוסיף פעמיים');
+  await post(cb(1001, 'b:rep'));
+  c = take();
+  assert.ok(find(c, 'sendDocument') || c.some((x) => x.method === 'sendDocument'), 'דוח נשלח כקובץ');
+  await post(cb(1002, 'b:tip:0'));
+  assert.ok(find(take(), 'editMessageText', /טיפ/));
+  ok('הכול על בל: תעודה, משקל, חיברות, פקודות, תבנית חיסונים ודוח');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

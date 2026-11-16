@@ -2,12 +2,13 @@
 import * as db from './db.js';
 import * as act from './actions.js';
 import * as v from './views.js';
-import { tgSafe, esc } from './telegram.js';
+import { tgSafe, esc, tgDocument } from './telegram.js';
 import { broadcast } from './notify.js';
 import { DOG, MEMBER_BY_ID, LATE_KINDS, HEALTH_KINDS, isAdmin } from './config.js';
 import * as hl from './health.js';
 import * as wz from './wizards.js';
 import { lookup } from './foods.js';
+import * as bell from './bell.js';
 import { CHEERS } from './config.js';
 import { minutesAgoFromClock, startOfDay } from './time.js';
 import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
@@ -88,6 +89,16 @@ async function onText(env, msg, ctx, origin) {
         if (!isAdmin(user)) return send(env, chat.id, v.adminOnly);
         await db.clearPending(env, from.id);
         return send(env, chat.id, await hl.healthHome(env, now));
+      case 'bell':
+        await db.clearPending(env, from.id);
+        return send(env, chat.id, await bell.hub(env, user, now));
+      case 'weight': {
+        await db.clearPending(env, from.id);
+        const q = (cmd.args || '').trim();
+        if (!q) return send(env, chat.id, await bell.weightAdd(env));
+        const r = await bell.onBellText(env, 'bw', q, user, now);
+        return r.error ? plain(env, chat.id, esc(r.error)) : send(env, chat.id, r.view);
+      }
       case 'food': {
         await db.clearPending(env, from.id);
         const q = (cmd.args || '').trim();
@@ -111,6 +122,18 @@ async function onText(env, msg, ctx, origin) {
   if (pend && pend.state === 'food') {
     await db.clearPending(env, from.id);
     if (now - pend.updated_at <= 20 * 60000) return send(env, chat.id, v.foodResult(text, lookup(text)));
+  }
+
+  // תעודת בל: ממתינים להקלדה (פרט בתעודה או משקל)
+  if (pend && (pend.state === 'bw' || pend.state.startsWith('bp:'))) {
+    if (now - pend.updated_at > 20 * 60000) {
+      await db.clearPending(env, from.id);
+    } else {
+      const r = await bell.onBellText(env, pend.state, text, user, now);
+      if (r.error) return plain(env, chat.id, esc(r.error));
+      await db.clearPending(env, from.id);
+      return send(env, chat.id, r.view);
+    }
   }
 
   // הודעה חופשית לעידוד
@@ -339,6 +362,16 @@ async function onCheerNotice(env, cq, user, now) {
     });
   }
   return answer();
+}
+
+async function onBell(env, cq, user, now) {
+  const r = await bell.onBellCallback(env, cq.data, user, now);
+  if (r.pend) await db.setPending(env, cq.from.id, r.pend, 0, now);
+  else await db.clearPending(env, cq.from.id);
+  const ops = [tgSafe(env, 'answerCallbackQuery', { callback_query_id: cq.id, ...(r.toast ? { text: r.toast, show_alert: !!r.alert } : {}) })];
+  if (r.view) ops.push(edit(env, cq.message, r.view));
+  await Promise.all(ops);
+  if (r.doc) await tgDocument(env, cq.message.chat.id, r.doc.name, r.doc.html, 'text/html', r.doc.caption);
 }
 
 async function onFood(env, cq, now) {
@@ -614,6 +647,7 @@ async function onCallback(env, cq, ctx, origin) {
   if (/^[dm]w:/.test(data)) return onWizard(env, cq, user, now);
   if (/^h[wdsxcg]?:/.test(data)) return onHealth(env, cq, user, now);
   if (data.startsWith('f:')) return onFood(env, cq, now);
+  if (data.startsWith('b:')) return onBell(env, cq, user, now);
   if (data.startsWith('c:')) return onCheer(env, cq, user, opts, now);
   if (data.startsWith('cn:')) return onCheerNotice(env, cq, user, now);
   if (!isAdmin(user) && (data === 'm:settings' || data.startsWith('s:'))) {

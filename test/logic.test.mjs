@@ -195,3 +195,26 @@ test('מאגר המזון שלם ותקין', () => {
     }
   }
 });
+
+import { parseWeight, ageText } from '../src/bell.js';
+import { TIPS, tipFor } from '../src/tips.js';
+test('משקל וגיל', () => {
+  const now = Date.UTC(2026, 10, 16, 10);
+  const tz = 'Asia/Jerusalem';
+  assert.equal(parseWeight('2.4', now, tz).grams, 2400);
+  assert.equal(parseWeight('2,4 ק״ג', now, tz).grams, 2400);
+  assert.equal(parseWeight('2400', now, tz).grams, 2400);
+  assert.equal(parseWeight('2400 גרם', now, tz).grams, 2400);
+  const d = parseWeight('3.1 1.11', now, tz);
+  assert.equal(d.grams, 3100);
+  assert.ok(d.ts < now);
+  assert.ok(parseWeight('אבא', now, tz).error);
+  assert.ok(parseWeight('50', now, tz).error, 'לא הגיוני');
+  assert.ok(parseWeight('2.4 30.12', now, tz).error, 'תאריך עתידי');
+  assert.equal(ageText(now - 10 * 7 * 86400000, now), '10 שבועות');
+  assert.equal(ageText(now - 14 * 86400000, now), 'שבועיים');
+  assert.match(ageText(now - 200 * 86400000, now), /חודשים/);
+  assert.equal(ageText(now + 1000, now), null);
+  assert.ok(TIPS.length >= 15);
+  assert.equal(tipFor(-1), tipFor(TIPS.length - 1));
+});
