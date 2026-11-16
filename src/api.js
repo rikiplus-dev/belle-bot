@@ -7,6 +7,10 @@ import { startOfDay, startOfWeek, shortDay } from './time.js';
 import { announceWalkStart, announceWalkEnd } from './notify.js';
 import { isAdmin } from './config.js';
 import { healthState } from './health.js';
+import { effectiveThresholds, analyze } from './insights.js';
+import { onDutyMembers } from './duty.js';
+import { ageText } from './bell.js';
+import { lookup } from './foods.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -75,10 +79,33 @@ export async function buildState(env, user, now = Date.now()) {
     activeWalk = { id: active.id, member: active.member, started_at: active.started_at, pee_out: c.pee_out, poop_out: c.poop_out };
   }
 
+  const [prof, weights, th, duty, anchorPee, anchorWalk, ev30] = await Promise.all([
+    db.getProfile(env),
+    db.recentWeights(env, 12),
+    effectiveThresholds(env, now),
+    db.listDuty(env),
+    db.maxOutPee(env),
+    db.maxWalkStart(env),
+    db.eventsBetween(env, now - 30 * 86400000, now),
+  ]);
+  const an = analyze(ev30, now, tz);
+  const anchor = Math.max(anchorPee, anchorWalk) || null;
+  const bell = {
+    age: prof.birth ? ageText(+prof.birth, now) : null,
+    weight: weights[0] ? weights[0].grams : null,
+    weights: weights.slice().reverse().map((w) => ({ ts: w.ts, g: w.grams })),
+    anchor,
+    next: anchor ? anchor + th.intervalMin * 60000 : null,
+    interval_min: th.intervalMin,
+    on_duty: onDutyMembers(duty, now, tz).map((m) => MEMBER_BY_ID[m]?.name).filter(Boolean),
+    streak: an.neverHome && !ev30.length ? null : an.streak,
+  };
+
   return {
     now,
     tz,
     dog: DOG,
+    bell,
     me: { member: user.member, name: MEMBER_BY_ID[user.member]?.name || '' },
     members: MEMBERS,
     kinds: Object.fromEntries(Object.entries(KINDS).map(([k, v]) => [k, { label: v.label, out: !!v.out, accident: !!v.accident, star: v.star }])),
@@ -118,6 +145,13 @@ export async function handleApi(request, env, ctx) {
     body = await request.json();
   } catch {
     body = {};
+  }
+
+  // בדיקת מזון
+  if (path === '/api/food') {
+    const q = String(body.q || '').slice(0, 80);
+    const r = lookup(q);
+    return json({ q, level: r.level, items: r.matches.slice(0, 4).map((m) => ({ name: m.name, level: m.level, note: m.note })) });
   }
 
   if (path === '/api/walk/start') {

@@ -862,6 +862,18 @@ try {
   assert.ok(c.some((x) => x.method === 'deleteMessage'), 'הלוח הישן נמחק');
   ok('לוח ראשי מוצמד ומתחלף');
 
+  /* לוח בקרה: עכשיו, משקל ובדיקת מזון */
+  const st2 = await api(1001, 'GET', '/api/state');
+  assert.equal(st2.status, 200);
+  const bl = st2.json.bell;
+  assert.ok(bl && bl.age && bl.weight >= 2000 && bl.weights.length >= 2, 'נתוני בל בלוח הבקרה');
+  assert.ok(bl.interval_min >= 90 && bl.interval_min <= 240, 'מרווח יציאות');
+  const fd = await api(1002, 'POST', '/api/food', { q: 'האם מותר שוקולד?' });
+  assert.equal(fd.json.level, 'no');
+  assert.ok(fd.json.items[0].note);
+  assert.equal((await api(1002, 'POST', '/api/food', { q: 'קרמבו' })).json.items.length, 0);
+  ok('לוח בקרה: נתוני בל ובדיקת מזון');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

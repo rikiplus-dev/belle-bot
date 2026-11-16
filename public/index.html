@@ -18,11 +18,14 @@
         <h1>בל</h1>
         <div class="me" id="me" hidden></div>
       </div>
+      <button type="button" class="bigbtn" id="bigBtn" aria-label="הגדלת הכתב">A+</button>
     </header>
 
     <div class="note" id="note" role="status" hidden></div>
     <div id="content" hidden>
       <section id="walkCard" class="walkcard"></section>
+
+      <section class="board nowcard" id="nowCard" aria-label="עכשיו"></section>
 
       <section class="group" id="homeGroup" style="--c:var(--home)">
         <div class="ghead"><h2>קרה בבית</h2></div>
@@ -56,6 +59,20 @@
         <h2><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.500l2.900 6 6.600.9-4.800 4.600 1.200 6.500L12 17.300 6.100 20.500l1.200-6.500L2.500 9.400l6.600-.9z"/></svg>כוכבים השבוע</h2>
         <p class="cap">כוכב על טיול שהסתיים, פיפי או קקי בחוץ, והכנת אוכל. השבוע מתחיל ביום ראשון.</p>
         <div id="board"></div>
+      </section>
+
+      <section class="board" id="weightCard" aria-label="משקל" hidden>
+        <h2>⚖️ משקל</h2>
+        <div id="weight"></div>
+      </section>
+
+      <section class="board" aria-label="בדיקת מזון">
+        <h2>🍖 האם מותר לבל לאכול?</h2>
+        <form id="foodForm" class="foodform" autocomplete="off">
+          <input id="foodQ" type="text" inputmode="text" maxlength="60" placeholder="כתבו מזון, למשל בננה" aria-label="שם מזון">
+          <button type="submit" class="foodgo">בדיקה</button>
+        </form>
+        <div id="foodOut" class="foodout" role="status"></div>
       </section>
 
       <section class="board" id="healthCard" aria-label="בריאות" hidden>

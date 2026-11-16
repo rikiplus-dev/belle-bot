@@ -230,6 +230,8 @@
     st.className = 'streak' + (S.last_home ? ' warn' : '');
     st.replaceChildren(icon(S.last_home ? 'warn' : 'ok'), el('span', '', S.last_home ? 'תאונה אחרונה בבית: ' + ago(S.last_home) : 'עדיין אין תאונות בבית'));
 
+    renderNow();
+    renderWeight();
     renderChart();
     renderBoard();
     renderHealth();
@@ -323,6 +325,75 @@
     var b = el('span', ''); var bi = el('i'); bi.style.background = 'var(--home)'; b.append(bi, document.createTextNode('בבית'));
     legend.append(a, b);
     $('chart').replaceChildren(svg, legend);
+  }
+
+  function kg(g) { return (Math.round(g / 10) / 100) + ' ק״ג'; }
+
+  function renderNow() {
+    var box = $('nowCard');
+    box.replaceChildren();
+    var B = S.bell || {};
+    box.appendChild(el('h2', '', 'עכשיו'));
+    function row(label, val, cls) {
+      var r = el('div', 'nowrow');
+      r.appendChild(el('span', '', label));
+      r.appendChild(el('span', cls ? 'pill ' + cls : '', val));
+      box.appendChild(r);
+    }
+    if (B.anchor) {
+      row('יציאה אחרונה', ago(B.anchor));
+      var left = B.next - nowEst();
+      if (S.active_walk) row('הבאה', 'בטיול עכשיו', 'ok');
+      else if (left > 30 * 60000) row('הבאה צפויה', 'בעוד ' + dur(left), 'ok');
+      else if (left > 0) row('הבאה צפויה', 'בעוד ' + dur(left), 'soon');
+      else row('הבאה', 'באיחור של ' + dur(-left), 'late');
+    } else {
+      row('יציאה אחרונה', 'עוד לא תועדה');
+    }
+    if (B.on_duty && B.on_duty.length) row('באחריות עכשיו', B.on_duty.join(', '));
+    if (B.streak !== null && B.streak !== undefined && B.streak >= 1) row('בלי תאונה בבית', B.streak + (B.streak === 1 ? ' יום' : ' ימים'), 'ok');
+    var bits = [];
+    if (B.age) bits.push('בת ' + B.age);
+    if (B.weight) bits.push(kg(B.weight));
+    if (bits.length) box.appendChild(el('p', 'cap', bits.join(' · ')));
+  }
+
+  function renderWeight() {
+    var card = $('weightCard');
+    var W = (S.bell && S.bell.weights) || [];
+    card.hidden = W.length < 1;
+    if (!W.length) return;
+    var box = $('weight');
+    box.replaceChildren();
+    var last = W[W.length - 1];
+    box.appendChild(el('p', 'cap', 'אחרון: ' + kg(last.g) + (W.length > 1 ? ' · לפני כן ' + kg(W[W.length - 2].g) : '')));
+    if (W.length < 2) return;
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 300 80');
+    svg.setAttribute('class', 'wchart');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'גרף משקל');
+    var lo = Math.min.apply(null, W.map(function (w) { return w.g; }));
+    var hi = Math.max.apply(null, W.map(function (w) { return w.g; }));
+    var pts = W.map(function (w, i) {
+      var x = 10 + (280 * i) / (W.length - 1);
+      var y = hi === lo ? 40 : 70 - ((w.g - lo) / (hi - lo)) * 60;
+      return [x, y];
+    });
+    var line = document.createElementNS(ns, 'polyline');
+    line.setAttribute('points', pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' '));
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', 'var(--good)');
+    line.setAttribute('stroke-width', '3');
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+    pts.forEach(function (p) {
+      var c = document.createElementNS(ns, 'circle');
+      c.setAttribute('cx', p[0]); c.setAttribute('cy', p[1]); c.setAttribute('r', '4'); c.setAttribute('fill', 'var(--good)');
+      svg.appendChild(c);
+    });
+    box.appendChild(svg);
   }
 
   function renderBoard() {
@@ -451,6 +522,39 @@
   });
 
   var pi = 0;
+  // בדיקת מזון
+  $('foodForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = $('foodQ').value.trim();
+    if (!q) return;
+    call('POST', '/api/food', { q: q }).then(function (r) {
+      var out = $('foodOut');
+      out.replaceChildren();
+      var j = r.json || {};
+      if (!j.items || !j.items.length) {
+        var u = el('div', 'fres');
+        u.append(el('b', '', '🤔 לא מכיר את זה'), el('span', '', 'כשיש ספק לא נותנים, ושואלים את הווטרינר.'));
+        out.appendChild(u);
+        return;
+      }
+      var head = { no: '🚫 אסור לבל', mid: '⚠️ בינוני: אפשר, אבל לא בהגזמה', ok: '✅ בכיף' }[j.level];
+      out.appendChild(el('b', '', head));
+      j.items.forEach(function (it) {
+        var d = el('div', 'fres ' + it.level);
+        d.append(el('b', '', it.name), el('span', '', it.note));
+        out.appendChild(d);
+      });
+    }).catch(function () { toast('אין חיבור. נסו שוב.'); });
+  });
+
+  // הגדלת כתב
+  try { if (localStorage.getItem('big') === '1') document.documentElement.setAttribute('data-big', ''); } catch (e) {}
+  $('bigBtn').addEventListener('click', function () {
+    var on = document.documentElement.hasAttribute('data-big');
+    if (on) document.documentElement.removeAttribute('data-big'); else document.documentElement.setAttribute('data-big', '');
+    try { localStorage.setItem('big', on ? '0' : '1'); } catch (e) {}
+  });
+
   $('avatar').addEventListener('click', function () {
     pi = (pi + 1) % PHOTOS.length;
     $('avatarImg').src = PHOTOS[pi];
