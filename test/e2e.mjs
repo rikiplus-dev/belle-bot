@@ -914,6 +914,18 @@ try {
   assert.ok(!JSON.stringify(sqlq("SELECT member FROM events ORDER BY id DESC LIMIT 1")).includes('sharoli'), 'חזרה לעצמי');
   ok('תיעוד בשם בן בית אחר: בוט ולוח בקרה');
 
+  /* כפתור תפריט קבוע */
+  await sqlq("DELETE FROM settings WHERE key LIKE 'rk:%'");
+  take();
+  await post(msg(1001, '/menu'));
+  c = take();
+  assert.ok(c.some((x) => x.method === 'sendMessage' && x.reply_markup && JSON.stringify(x.reply_markup).includes('keyboard') && JSON.stringify(x.reply_markup).includes('📋 תפריט')), 'נשלח כפתור קבוע');
+  await post(msg(1001, '📋 תפריט'));
+  c = take();
+  assert.ok(c.some((x) => x.method === 'sendMessage' && /בל/.test(x.text || '')), 'הכפתור פותח את הלוח');
+  assert.ok(!c.some((x) => x.method === 'sendMessage' && /הוספתי כפתור/.test(x.text || '')), 'הכפתור נשלח פעם אחת בלבד');
+  ok('כפתור תפריט קבוע');
+
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {
   console.error('\nנכשל:', e.message, e.cause ? String(e.cause) : '', (e.stack || '').split('\n').slice(1, 4).join(' | '));

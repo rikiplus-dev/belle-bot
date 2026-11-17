@@ -35,8 +35,20 @@ const edit = (env, msg, view) =>
   });
 
 // הלוח הראשי: הודעה אחת מוצמדת. פקודה חדשה מוחקת את הישנה ושולחת לוח חדש בתחתית הצ'אט.
+const MENU_BTN = '📋 תפריט';
+
 async function showPanel(env, chat, user, view) {
   if (chat.type !== 'private') return send(env, chat.id, view);
+  // כפתור תפריט קבוע מעל המקלדת: נשלח פעם אחת לכל משתמש ונשאר עד שמסירים אותו
+  if (!(await db.getSetting(env, 'rk:' + user.tg_id, 0))) {
+    await db.setSetting(env, 'rk:' + user.tg_id, 1);
+    await tgSafe(env, 'sendMessage', {
+      chat_id: chat.id,
+      text: '📋 הוספתי כפתור <b>תפריט</b> קבוע בתחתית הצ׳אט. לחיצה עליו מביאה את הלוח בכל רגע.',
+      parse_mode: 'HTML',
+      reply_markup: { keyboard: [[{ text: MENU_BTN }]], resize_keyboard: true, is_persistent: true },
+    });
+  }
   if (user.panel_msg) await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: user.panel_msg });
   const m = await send(env, chat.id, view);
   if (m && m.message_id) {
@@ -86,7 +98,8 @@ async function onText(env, msg, ctx, origin) {
   const chat = msg.chat;
   const isPrivate = chat.type === 'private';
   const text = msg.text.trim();
-  const cmd = parseCommand(text);
+  const isMenuBtn = text === MENU_BTN;
+  const cmd = isMenuBtn ? { name: 'menu', args: '' } : parseCommand(text);
   const now = Date.now();
 
   let user = await db.getUser(env, from.id);
@@ -107,6 +120,7 @@ async function onText(env, msg, ctx, origin) {
   }
   user = await withActAs(env, user, now);
   const opts = { isPrivate, origin };
+  if (isMenuBtn) await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: msg.message_id });
 
   if (cmd) {
     switch (cmd.name) {
