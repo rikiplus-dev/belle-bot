@@ -363,9 +363,38 @@ try {
     const nudge = c.find((x) => x.method === 'sendMessage' && /עברו/.test(x.text));
     assert.ok(nudge.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'a:walk_start'));
     ok('תזכורת אחרי 4 שעות בלי יציאה, עם כפתור "יוצאים לטיול"');
+
   } else {
     console.log('  – שעות שקט עכשיו, מדלגים על בדיקת תזכורת אחרי ארוחה');
   }
+
+  // תזכורות ארוחה קבועות: ראשונה (עד שעה X) ושנייה
+  const hNow = Number(new Date().toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false }));
+  const sf = (hNow + 12) % 24, st = (hNow + 14) % 24; // חלון שינה רחוק מהשעה הנוכחית
+  sql(`INSERT INTO settings(key,value) VALUES('sleep_from','${sf}') ON CONFLICT(key) DO UPDATE SET value='${sf}'`);
+  sql(`INSERT INTO settings(key,value) VALUES('sleep_to','${st}') ON CONFLICT(key) DO UPDATE SET value='${st}'`);
+  sql(`INSERT INTO settings(key,value) VALUES('meal1_by','${hNow}') ON CONFLICT(key) DO UPDATE SET value='${hNow}'`);
+  sql('DELETE FROM events');
+  sql('DELETE FROM walks');
+  take();
+  await runCron();
+  await new Promise((r2) => setTimeout(r2, 1500));
+  c = take();
+  const m1 = c.find((x) => x.method === 'sendMessage' && /ארוחת בוקר/.test(x.text));
+  assert.ok(m1, 'תזכורת ארוחה ראשונה');
+  assert.ok(m1.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'a:meal'));
+  await runCron();
+  await new Promise((r2) => setTimeout(r2, 1000));
+  assert.ok(!take().find((x) => /ארוחת בוקר/.test(x.text || '')), 'פעם אחת ביום');
+  sql(`INSERT INTO events(ts,kind,member) VALUES(${Date.now() - 3600000}, 'meal', 'riki')`);
+  sql(`INSERT INTO settings(key,value) VALUES('meal1_by','0') ON CONFLICT(key) DO UPDATE SET value='0'`);
+  sql(`INSERT INTO settings(key,value) VALUES('meal2_by','${hNow}') ON CONFLICT(key) DO UPDATE SET value='${hNow}'`);
+  await runCron();
+  await new Promise((r2) => setTimeout(r2, 1500));
+  const m2 = take().find((x) => x.method === 'sendMessage' && /(הארוחה השנייה|אף ארוחה)/.test(x.text));
+  assert.ok(m2, 'תזכורת ארוחה שנייה');
+  sql("DELETE FROM settings WHERE key IN ('sleep_from','sleep_to','meal1_by','meal2_by')");
+  ok('תזכורות ארוחה קבועות (ראשונה ושנייה)');
 
   /* עדכון אחורה */
   sql('DELETE FROM events');

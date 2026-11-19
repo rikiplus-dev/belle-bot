@@ -1,6 +1,6 @@
 // מה שהבוט מציג: טקסטים ומקלדות. הכול בעברית.
 import * as db from './db.js';
-import { isAdmin, CHEERS, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
+import { SLEEP_FROM_OPTIONS, SLEEP_TO_OPTIONS, MEAL1_OPTIONS, MEAL2_OPTIONS, isAdmin, CHEERS, DOG, MEMBERS, MEMBER_BY_ID, KINDS, MEAL_NUDGE_OPTIONS, INTERVAL_OPTIONS, LATE_OFFSETS, LATE_WALK_DURS } from './config.js';
 import { esc } from './telegram.js';
 import { dateLine, dur, ago, hhmm, startOfDay, startOfWeek } from './time.js';
 import { onDutyMembers, daysText, clock } from './duty.js';
@@ -11,6 +11,7 @@ import { tipFor } from './tips.js';
 const tzOf = (env) => env.TZ || 'Asia/Jerusalem';
 const name = (id) => (MEMBER_BY_ID[id] ? MEMBER_BY_ID[id].name : 'מישהו/י');
 const btn = (text, data) => ({ text, callback_data: data });
+const pad = (n) => String(n).padStart(2, '0');
 
 /* ---------- הלוח הראשי ---------- */
 
@@ -217,7 +218,9 @@ export async function settingsView(env, user) {
     `תזכורת אם לא יצאו: כל ${dur(t.intervalMin * 60000)}${t.intervalAuto ? ' (אוטומטי)' : ''}`,
     '<i>אוטומטי: לומד מההיסטוריה ומהגיל של בל. לחיצה על הכפתור מחליפה בין אוטומטי לערכים קבועים.</i>',
     '',
-    '<i>תזכורות לא נשלחות בין 22:00 ל-07:00</i>',
+    `😴 שינה: ${pad(t.sleepFrom)}:00 עד ${pad(t.sleepTo)}:00. בשעות האלה אין תזכורות ואין יציאות`,
+    `🍽 תזכורת ארוחה ראשונה: ${t.meal1By ? 'אם עד ' + pad(t.meal1By) + ':00 לא תועדה ארוחה' : 'כבוי'}`,
+    `🍽 תזכורת ארוחה שנייה: ${t.meal2By ? 'אם עד ' + pad(t.meal2By) + ':00 לא תועדה ארוחה שנייה' : 'כבוי'}`,
     '',
     ...dutyLines,
   ].join('\n');
@@ -226,6 +229,8 @@ export async function settingsView(env, user) {
     [btn(`הודעות על טיולים: ${user.notify_activity ? 'כבה' : 'הפעל'}`, 's:activity')],
     [btn(`אחרי ארוחה: ${t.mealAuto ? 'אוטומטי' : t.mealNudgeMin + ' דק׳'} ⟳`, 's:meal')],
     [btn(`אם לא יצאו: ${t.intervalAuto ? 'אוטומטי' : dur(t.intervalMin * 60000)} ⟳`, 's:interval')],
+    [btn(`😴 שינה מ-${pad(t.sleepFrom)}:00 ⟳`, 's:sf'), btn(`עד ${pad(t.sleepTo)}:00 ⟳`, 's:st')],
+    [btn(`🍽 ארוחה 1 עד: ${t.meal1By ? pad(t.meal1By) + ':00' : 'כבוי'} ⟳`, 's:m1'), btn(`🍽 ארוחה 2 עד: ${t.meal2By ? pad(t.meal2By) + ':00' : 'כבוי'} ⟳`, 's:m2')],
     ...duty.slice(0, 8).map((d) => [btn(`🗑 ${name(d.member)} · ${daysText(d.days)} · ${clock(d.start_min)}-${clock(d.end_min)}`, `s:dd:${d.id}`)]),
     [btn('➕ הוספת שעות אחריות', 's:da')],
     [btn('⬅️ חזרה', 'm:menu')],

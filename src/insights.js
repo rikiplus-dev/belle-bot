@@ -64,7 +64,9 @@ export function analyze(events, now, tz) {
 export async function effectiveThresholds(env, now) {
   const rawMeal = await db.getSetting(env, 'meal_nudge_min', 0);
   const rawInt = await db.getSetting(env, 'interval_min', 0);
-  const out = { mealNudgeMin: rawMeal || DEFAULTS.mealNudgeMin, intervalMin: rawInt || DEFAULTS.intervalMin, mealAuto: !rawMeal, intervalAuto: !rawInt, why: {} };
+  const out = { mealNudgeMin: rawMeal || DEFAULTS.mealNudgeMin, intervalMin: rawInt || DEFAULTS.intervalMin, mealAuto: !rawMeal, intervalAuto: !rawInt, why: {},
+    sleepFrom: await db.getSetting(env, 'sleep_from', DEFAULTS.quietFrom), sleepTo: await db.getSetting(env, 'sleep_to', DEFAULTS.quietTo),
+    meal1By: await db.getSetting(env, 'meal1_by', 10), meal2By: await db.getSetting(env, 'meal2_by', 20) };
   if (!rawMeal) {
     const events = await db.eventsBetween(env, now - 30 * DAY, now);
     const gaps = mealGaps(events);

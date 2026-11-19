@@ -44,6 +44,12 @@ export const DEFAULTS = {
 // 0 = אוטומטי: לומד מההיסטוריה ומהגיל של בל
 export const MEAL_NUDGE_OPTIONS = [0, 15, 20, 30, 45];
 export const INTERVAL_OPTIONS = [0, 120, 150, 180, 240];
+// שעות שינה (בלי תזכורות ובלי יציאות): התחלה וסיום, בשעות שלמות
+export const SLEEP_FROM_OPTIONS = [20, 21, 22, 23, 0];
+export const SLEEP_TO_OPTIONS = [6, 7, 8, 9];
+// תזכורת אם עד השעה הזו לא תועדה ארוחה ראשונה / שנייה. 0 = כבוי
+export const MEAL1_OPTIONS = [0, 9, 10, 11];
+export const MEAL2_OPTIONS = [0, 19, 20, 21];
 
 // עדכון אחורה: מה אפשר לתעד בדיעבד, ואילו כפתורי זמן להציג (בדקות)
 export const LATE_KINDS = ['pee_home', 'poop_home', 'meal', 'cook'];

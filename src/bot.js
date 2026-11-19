@@ -12,7 +12,8 @@ import { parseFreeText } from './parse.js';
 import * as bell from './bell.js';
 import { CHEERS } from './config.js';
 import { minutesAgoFromClock, startOfDay } from './time.js';
-import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS } from './config.js';
+import { INTERVAL_OPTIONS, MEAL_NUDGE_OPTIONS, SLEEP_FROM_OPTIONS, SLEEP_TO_OPTIONS, MEAL1_OPTIONS, MEAL2_OPTIONS } from './config.js';
+import { effectiveThresholds } from './insights.js';
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 3600000;
@@ -859,7 +860,12 @@ async function onCallback(env, cq, ctx, origin) {
   } else if (type === 's') {
     if (arg === 'notify') await db.setUserFlag(env, from.id, 'notify', !user.notify);
     else if (arg === 'activity') await db.setUserFlag(env, from.id, 'notify_activity', !user.notify_activity);
-    else if (arg === 'meal') {
+    else if (arg === 'sf' || arg === 'st' || arg === 'm1' || arg === 'm2') {
+      const t = await effectiveThresholds(env, now);
+      const map = { sf: ['sleep_from', SLEEP_FROM_OPTIONS, t.sleepFrom], st: ['sleep_to', SLEEP_TO_OPTIONS, t.sleepTo], m1: ['meal1_by', MEAL1_OPTIONS, t.meal1By], m2: ['meal2_by', MEAL2_OPTIONS, t.meal2By] };
+      const [key, opts2, cur] = map[arg];
+      await db.setSetting(env, key, v.nextOption(opts2, cur));
+    } else if (arg === 'meal') {
       const t = await db.thresholds(env);
       await db.setSetting(env, 'meal_nudge_min', v.nextOption(MEAL_NUDGE_OPTIONS, t.mealNudgeMin));
     } else if (arg === 'interval') {

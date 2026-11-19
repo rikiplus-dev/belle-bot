@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { DOG, DEFAULTS, MEMBER_BY_ID } from './config.js';
 import { broadcast } from './notify.js';
 import { tgSafe, esc, alertAdmin } from './telegram.js';
-import { parts, startOfWeek, dur } from './time.js';
+import { parts, startOfWeek, startOfDay, dur } from './time.js';
 import { weeklyText } from './views.js';
 import { healthCron } from './health.js';
 import { onDutyMembers } from './duty.js';
@@ -25,7 +25,9 @@ async function step(env, name, fn) {
 export async function runCron(env, now = Date.now()) {
   const tz = env.TZ || 'Asia/Jerusalem';
   const p = parts(now, tz);
-  const quiet = p.h >= DEFAULTS.quietFrom || p.h < DEFAULTS.quietTo;
+  const th = await effectiveThresholds(env, now);
+  // שעות שינה: אם ההתחלה גדולה מהסיום, החלון חוצה חצות (למשל 22 עד 7)
+  const quiet = th.sleepFrom > th.sleepTo ? p.h >= th.sleepFrom || p.h < th.sleepTo : p.h >= th.sleepFrom && p.h < th.sleepTo;
   const out = { closed: 0, mealNudge: 0, intervalNudge: 0, weekly: 0 };
 
   // 1. טיול שנשכח פתוח נסגר לבד
@@ -79,7 +81,33 @@ export async function runCron(env, now = Date.now()) {
       out.streak = n;
     });
   }
-  const t = await effectiveThresholds(env, now);
+  const t = th;
+
+  // תזכורות ארוחה קבועות: ראשונה (למשל עד 10:00) ושנייה (למשל עד 20:00). פעם אחת ביום לכל אחת.
+  await step(env, 'תזכורת ארוחה', async () => {
+    const day0 = startOfDay(now, tz);
+    const dayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: tz });
+    const wake = day0 + th.sleepTo * 3600000;
+    const meals = (await db.eventsBetween(env, wake, now)).filter((e) => e.kind === 'meal').length;
+    const checks = [
+      { by: th.meal1By, need: 1, key: `meal1:${dayKey}`, text: `🍽 עוד לא תועדה ארוחת בוקר של ${DOG}.\nאכלה? אפשר לתעד בלחיצה. לא אכלה? כדאי להאכיל אותה.` },
+      {
+        by: th.meal2By,
+        need: 2,
+        key: `meal2:${dayKey}`,
+        text: meals === 0 ? `🍽 לא תועדה אף ארוחה היום ל${DOG}.\nאכלה? אפשר לתעד בלחיצה.` : `🍽 הארוחה השנייה של ${DOG} עדיין לא תועדה.\nאכלה? אפשר לתעד בלחיצה. לא אכלה? הגיע הזמן.`,
+      },
+    ];
+    for (const c of checks) {
+      // שולחים רק בשעה היעד או בשעה שאחריה, כדי לא להפתיע באמצע היום
+      if (!c.by || (p.h !== c.by && p.h !== c.by + 1) || meals >= c.need) continue;
+      if ((await db.reminderSent(env, c.key)) || !(await db.claimReminder(env, c.key, now))) continue;
+      const n = await broadcast(env, c.text, { flag: 'notify', markup: { inline_keyboard: [[{ text: '🍽 תיעדו שבל אכלה', callback_data: 'a:meal' }]] } });
+      if (!n) await db.unclaimReminder(env, c.key);
+      out[c.key.split(':')[0]] = n;
+    }
+  });
+
   // בשעות אחריות רק מי שבאחריות מקבל תזכורות אילוף. אם הוא עוד לא מחובר לבוט, כולם מקבלים.
   const onDuty = onDutyMembers(await db.listDuty(env), now, tz);
   const users = await db.listUsers(env);
@@ -103,7 +131,9 @@ export async function runCron(env, now = Date.now()) {
   }
 
   // 4. תזכורת אם עבר זמן רב בלי יציאה
-  const anchor = Math.max(await db.maxOutPee(env), await db.maxWalkStart(env));
+  // השינה לא נספרת: אחרי הלילה סופרים מרגע ההשכמה
+  const wakeTs = startOfDay(now, tz) + th.sleepTo * 3600000;
+  const anchor = Math.max(await db.maxOutPee(env), await db.maxWalkStart(env), now >= wakeTs ? wakeTs : 0);
   if (anchor && now - anchor < 12 * 60 * MIN) {
     const n = Math.floor((now - anchor) / (t.intervalMin * MIN));
     if (n >= 1 && n <= 3) {
