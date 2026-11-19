@@ -108,3 +108,34 @@ export async function walkLate(env, who, minAgo, durMin, pee, poop, now) {
     notice: `${name(who)}: 🚶 טיול שהיה · ${when} · ${bits} · ⭐ +${WALK_STAR}`,
   };
 }
+
+/* ---------- עריכת פעולה שכבר נרשמה ---------- */
+
+const EDIT_WINDOW = 7 * 86400000;
+const shiftOf = (n) => (Number.isFinite(Number(n)) ? Math.max(-1440, Math.min(1440, Math.round(Number(n)))) : 0);
+// אפשר להחליף סוג רק בתוך אותה קבוצה: בחוץ / בבית / אוכל, כדי לא לשבור את הקישור לטיול
+const kindClass = (k) => (KINDS[k]?.out ? 'out' : KINDS[k]?.accident ? 'home' : 'care');
+
+// canEdit: הפונקציה שמחליטה אם מותר לערוך את השורה (בעלים או מנהל)
+export async function editEvent(env, id, { shiftMin = 0, kind = null }, now, canEdit) {
+  const e = await db.getEvent(env, id);
+  if (!e || !canEdit(e)) return { ok: false, toast: 'אפשר לערוך רק פעולות שלך' };
+  const newKind = kind || e.kind;
+  if (!KINDS[newKind] || kindClass(newKind) !== kindClass(e.kind)) return { ok: false, toast: 'אי אפשר להחליף לסוג כזה' };
+  const ts = e.ts + shiftOf(shiftMin) * 60000;
+  if (ts > now + 60000 || ts < now - EDIT_WINDOW) return { ok: false, toast: 'השעה לא הגיונית (לא בעתיד, ולא יותר משבוע אחורה)' };
+  await db.updateEvent(env, id, Math.min(ts, now), newKind);
+  return { ok: true, toast: '✏️ עודכן' };
+}
+
+export async function editWalk(env, id, { shiftStart = 0, shiftEnd = 0 }, now, canEdit) {
+  const w = await db.getWalk(env, id);
+  if (!w || !canEdit(w)) return { ok: false, toast: 'אפשר לערוך רק פעולות שלך' };
+  const s = w.started_at + shiftOf(shiftStart) * 60000;
+  const e = w.ended_at ? w.ended_at + shiftOf(shiftEnd) * 60000 : null;
+  if (s > now + 60000 || s < now - EDIT_WINDOW || (e !== null && (e <= s || e > now + 60000))) {
+    return { ok: false, toast: 'השעות לא הגיוניות (הסיום חייב להיות אחרי ההתחלה, ולא בעתיד)' };
+  }
+  await db.updateWalk(env, id, Math.min(s, now), e === null ? null : Math.min(e, now));
+  return { ok: true, toast: '✏️ עודכן' };
+}

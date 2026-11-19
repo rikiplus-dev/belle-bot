@@ -35,27 +35,48 @@ const edit = (env, msg, view) =>
   });
 
 // הלוח הראשי: הודעה אחת מוצמדת. פקודה חדשה מוחקת את הישנה ושולחת לוח חדש בתחתית הצ'אט.
-const MENU_BTN = '📋 תפריט';
-
-async function showPanel(env, chat, user, view) {
+// pin=false: לוח חדש בתחתית בלי הצמדה (אחרי לחיצה על מקש קבוע), כדי לא להציף בהודעות "הוצמדה הודעה"
+async function showPanel(env, chat, user, view, pin = true) {
   if (chat.type !== 'private') return send(env, chat.id, view);
-  // כפתור תפריט קבוע מעל המקלדת: נשלח פעם אחת לכל משתמש ונשאר עד שמסירים אותו
-  if (!(await db.getSetting(env, 'rk:' + user.tg_id, 0))) {
-    await db.setSetting(env, 'rk:' + user.tg_id, 1);
-    await tgSafe(env, 'sendMessage', {
-      chat_id: chat.id,
-      text: '📋 הוספתי כפתור <b>תפריט</b> קבוע בתחתית הצ׳אט. לחיצה עליו מביאה את הלוח בכל רגע.',
-      parse_mode: 'HTML',
-      reply_markup: { keyboard: [[{ text: MENU_BTN }]], resize_keyboard: true, is_persistent: true },
-    });
-  }
+  await ensureKb(env, chat, user);
   if (user.panel_msg) await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: user.panel_msg });
   const m = await send(env, chat.id, view);
   if (m && m.message_id) {
     await db.setPanelMsg(env, user.tg_id, m.message_id);
-    await tgSafe(env, 'pinChatMessage', { chat_id: chat.id, message_id: m.message_id, disable_notification: true });
+    if (pin) await tgSafe(env, 'pinChatMessage', { chat_id: chat.id, message_id: m.message_id, disable_notification: true });
   }
   return m;
+}
+
+// מקשים קבועים בתחתית הצ'אט: נשלחים פעם אחת לכל משתמש (גרסה 2) ונשארים עד שמסירים אותם
+const KB_FLAG = 'rk2:';
+async function ensureKb(env, chat, user) {
+  if (chat.type !== 'private' || user.tg_id < 0) return;
+  if (await db.getSetting(env, KB_FLAG + user.tg_id, 0)) return;
+  await db.setSetting(env, KB_FLAG + user.tg_id, 1);
+  await tgSafe(env, 'sendMessage', {
+    chat_id: chat.id,
+    text: '⌨️ הוספתי <b>מקשים קבועים</b> בתחתית הצ׳אט: טיול, פיפי, קקי, אוכל, תפריט, ביטול ועריכה. הם תמיד שם, בלי לגלול.',
+    parse_mode: 'HTML',
+    reply_markup: v.replyKeyboard,
+  });
+}
+
+const KB_BY_TEXT = Object.fromEntries(Object.entries(v.KB_LABELS).map(([k, label]) => [label, k]));
+
+// מבצע פעולה (מכפתור או ממקש קבוע): כל המקומות משתמשים באותו קוד
+async function runAction(env, user, arg, ctx, now) {
+  if (arg === 'walk_start') {
+    const r = await act.walkStart(env, user.member, now);
+    if (r.ok) ctx.waitUntil(announceWalkStart(env, user, r.walk.id));
+    return r;
+  }
+  if (arg === 'walk_end') {
+    const r = await act.walkEnd(env, user.member, now);
+    if (r.ok) ctx.waitUntil(announceWalkEnd(env, user, r));
+    return r;
+  }
+  return act.log(env, user.member, arg, now);
 }
 
 const plain = (env, chatId, text) => tgSafe(env, 'sendMessage', { chat_id: chatId, text, parse_mode: 'HTML' });
@@ -98,8 +119,8 @@ async function onText(env, msg, ctx, origin) {
   const chat = msg.chat;
   const isPrivate = chat.type === 'private';
   const text = msg.text.trim();
-  const isMenuBtn = text === MENU_BTN;
-  const cmd = isMenuBtn ? { name: 'menu', args: '' } : parseCommand(text);
+  const kbKey = KB_BY_TEXT[text] || null;
+  const cmd = kbKey ? null : parseCommand(text);
   const now = Date.now();
 
   let user = await db.getUser(env, from.id);
@@ -120,7 +141,20 @@ async function onText(env, msg, ctx, origin) {
   }
   user = await withActAs(env, user, now);
   const opts = { isPrivate, origin };
-  if (isMenuBtn) await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: msg.message_id });
+  if (kbKey && isPrivate) {
+    await tgSafe(env, 'deleteMessage', { chat_id: chat.id, message_id: msg.message_id });
+    if (kbKey === 'edit') return showPanel(env, chat, user, await v.editList(env, user), false);
+    let notice = '';
+    if (kbKey === 'undo') {
+      const r = await act.undo(env, user.member, now);
+      notice = r.ok ? r.notice : '⚠️ ' + r.toast;
+    } else if (kbKey !== 'menu') {
+      const r = await runAction(env, user, kbKey, ctx, now);
+      notice = r.ok ? r.notice : '⚠️ ' + r.toast;
+    }
+    return showPanel(env, chat, user, await v.panel(env, user, { ...opts, notice }), kbKey === 'menu');
+  }
+  if (isPrivate) await ensureKb(env, chat, user);
 
   if (cmd) {
     switch (cmd.name) {
@@ -760,6 +794,24 @@ async function onCallback(env, cq, ctx, origin) {
     return Promise.all([answer(r.toast), edit(env, msg, r.view)]);
   }
   user = await withActAs(env, user, now);
+  if (isPrivate) await ensureKb(env, msg.chat, user);
+
+  if (data.startsWith('ed:')) {
+    // ed:d:<e|w>:<id> מחיקה, ed:s:<e|w>:<id>:<דקות> הזזה
+    const [, op, kind, rawId, rawMin] = data.split(':');
+    const id = num(rawId);
+    const canEdit = (row) => isAdmin(user) || row.member === user.member;
+    let r;
+    if (op === 'd') {
+      const row = kind === 'w' ? await db.getWalk(env, id) : await db.getEvent(env, id);
+      const ok = row && canEdit(row) && (kind === 'w' ? await db.deleteWalk(env, id, null) : await db.deleteEvent(env, id, null));
+      r = { ok: !!ok, toast: ok ? '🗑 נמחק' : 'כבר לא קיים' };
+    } else {
+      const m = num(rawMin);
+      r = kind === 'w' ? await act.editWalk(env, id, { shiftStart: m, shiftEnd: m }, now, canEdit) : await act.editEvent(env, id, { shiftMin: m }, now, canEdit);
+    }
+    return Promise.all([answer(r.toast), edit(env, msg, await v.editList(env, user))]);
+  }
 
   if (data.startsWith('rg:')) return onApproval(env, cq, user, origin);
   if (data.startsWith('t:')) {
@@ -782,16 +834,7 @@ async function onCallback(env, cq, ctx, origin) {
   let notice = '';
 
   if (type === 'a' || type === 'q') {
-    let r;
-    if (arg === 'walk_start') {
-      r = await act.walkStart(env, user.member, now);
-      if (r.ok) ctx.waitUntil(announceWalkStart(env, user, r.walk.id));
-    } else if (arg === 'walk_end') {
-      r = await act.walkEnd(env, user.member, now);
-      if (r.ok) ctx.waitUntil(announceWalkEnd(env, user, r));
-    } else {
-      r = await act.log(env, user.member, arg, now);
-    }
+    const r = await runAction(env, user, arg, ctx, now);
     toast = r.toast;
     notice = r.ok ? r.notice : '';
     view = await v.panel(env, user, { ...opts, notice });
@@ -801,6 +844,7 @@ async function onCallback(env, cq, ctx, origin) {
       await db.clearPending(env, from.id);
       view = v.lateStart(user.member);
     } else if (arg === 'more') view = v.moreMenu(user);
+    else if (arg === 'edit') view = await v.editList(env, user);
     else if (arg === 'stars') view = await v.starsView(env);
     else if (arg === 'today') view = await v.todayView(env);
     else if (arg === 'settings') {

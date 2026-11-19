@@ -49,6 +49,8 @@
   var S = null;
   var fetchedAt = 0;
   var pendingDelete = null;
+  var editKey = null; // 'event:12' / 'walk:3' בזמן עריכה
+  var editDraft = {};
   var pdTimer = null;
   var toastTimer = null;
   var busy = false;
@@ -472,6 +474,85 @@
     return b;
   }
 
+  function findItem(key) {
+    var hit = null;
+    S.feed.forEach(function (x) {
+      if (x.type + ':' + x.id === key) hit = x;
+      if (x.type === 'walk') x.events.forEach(function (ev) { if ('event:' + ev.id === key) hit = { type: 'event', id: ev.id, ts: ev.ts, kind: ev.kind, member: ev.member }; });
+    });
+    return hit;
+  }
+
+  function canEditRow(f) { return f.member === S.me.member || !!S.me.admin; }
+
+  function editButton(type, id) {
+    var b = el('button', 'del', 'עריכה');
+    b.type = 'button';
+    b.dataset.act = 'edit';
+    b.dataset.type = type;
+    b.dataset.id = id;
+    return b;
+  }
+
+  // "08:05" -> דקות מחצות
+  function toMin(s) { var p = String(s || '').split(':'); return (+p[0]) * 60 + (+p[1]); }
+  function diffMin(oldHm, newHm) {
+    var d = toMin(newHm) - toMin(oldHm);
+    if (d > 720) d -= 1440;
+    if (d < -720) d += 1440;
+    return d;
+  }
+
+  function timeField(label, key, value) {
+    var wrap = el('label', 'efield');
+    wrap.appendChild(el('span', '', label));
+    var inp = el('input');
+    inp.type = 'time';
+    inp.value = value;
+    inp.dataset.field = key;
+    inp.addEventListener('input', function () { editDraft[key] = inp.value; });
+    wrap.appendChild(inp);
+    return wrap;
+  }
+
+  function buildEditor(f) {
+    var box = el('div', 'editor');
+    if (f.type === 'walk') {
+      box.appendChild(timeField('התחלה', 'start', editDraft.start));
+      if (f.ended_at) box.appendChild(timeField('סיום', 'end', editDraft.end));
+    } else {
+      box.appendChild(timeField('שעה', 'time', editDraft.time));
+      var cls = function (k) { return S.kinds[k].out ? 'o' : S.kinds[k].accident ? 'h' : 'c'; };
+      var same = Object.keys(S.kinds).filter(function (k) { return cls(k) === cls(f.kind); });
+      if (same.length > 1) {
+        var kinds = el('div', 'ekinds');
+        same.forEach(function (k) {
+          var kb = el('button', 'actbtn' + (editDraft.kind === k ? ' on' : ''), S.kinds[k].label);
+          kb.type = 'button';
+          kb.addEventListener('click', function () { editDraft.kind = k; renderFeed(); });
+          kinds.appendChild(kb);
+        });
+        box.appendChild(kinds);
+      }
+    }
+    var btns = el('div', 'ebtns');
+    var save = el('button', 'esave', 'שמירה');
+    save.type = 'button';
+    save.dataset.act = 'edit_save';
+    var cancel = el('button', 'ecancel', 'ביטול');
+    cancel.type = 'button';
+    cancel.dataset.act = 'edit_cancel';
+    var key = f.type + ':' + f.id;
+    var del = el('button', 'del' + (pendingDelete === key ? ' sure' : ''), pendingDelete === key ? 'בטוח למחוק?' : 'מחיקה');
+    del.type = 'button';
+    del.dataset.act = 'delete';
+    del.dataset.type = f.type;
+    del.dataset.id = f.id;
+    btns.append(save, cancel, del);
+    box.appendChild(btns);
+    return box;
+  }
+
   function renderFeed() {
     var box = $('feed');
     if (!S.feed.length) {
@@ -506,7 +587,9 @@
           var inner = el('div', 'inner');
           f.events.forEach(function (ev) {
             var ui = KIND_UI[ev.kind];
-            var chip = el('span', 'chip');
+            var editable = canEditRow(ev);
+            var chip = el(editable ? 'button' : 'span', 'chip' + (editable ? ' tapchip' : ''));
+            if (editable) { chip.type = 'button'; chip.dataset.act = 'edit'; chip.dataset.type = 'event'; chip.dataset.id = ev.id; chip.setAttribute('aria-label', 'עריכת ' + S.kinds[ev.kind].label); }
             chip.style.setProperty('--c', 'var(' + ui.c + ')');
             chip.append(icon(ui.icon), document.createTextNode(ui.short + ' ' + hhmm(ev.ts) + (ev.member !== f.member ? ' · ' + memberName(ev.member) : '')));
             inner.appendChild(chip);
@@ -515,7 +598,7 @@
         }
         row.append(disc, main);
         if (f.ended_at) row.appendChild(starBadge(1));
-        if (f.member === S.me.member) row.appendChild(delButton('walk', f.id));
+        if (canEditRow(f)) row.appendChild(editButton('walk', f.id));
       } else {
         var ui2 = KIND_UI[f.kind];
         if (!ui2) return;
@@ -525,9 +608,13 @@
         main.appendChild(el('span', 'sub', hhmm(f.ts) + ' · ' + memberName(f.member)));
         row.append(disc, main);
         if (S.kinds[f.kind].star) row.appendChild(starBadge(S.kinds[f.kind].star));
-        if (f.member === S.me.member) row.appendChild(delButton('event', f.id));
+        if (canEditRow(f)) row.appendChild(editButton('event', f.id));
       }
       rows.appendChild(row);
+      if (editKey === f.type + ':' + f.id) rows.appendChild(buildEditor(f));
+      if (f.type === 'walk') f.events.forEach(function (ev) {
+        if (editKey === 'event:' + ev.id) rows.appendChild(buildEditor({ type: 'event', id: ev.id, ts: ev.ts, kind: ev.kind, member: ev.member }));
+      });
     });
     box.replaceChildren(frag);
   }
@@ -540,6 +627,32 @@
     if (act === 'walk_start') doAct('/api/walk/start', null, t);
     else if (act === 'walk_end') doAct('/api/walk/end', null, t);
     else if (act === 'log') doAct('/api/log', { kind: t.dataset.kind }, t);
+    else if (act === 'edit') {
+      var k0 = t.dataset.type + ':' + t.dataset.id;
+      if (editKey === k0) { editKey = null; } else {
+        editKey = k0;
+        var fr = findItem(k0);
+        if (!fr) return;
+        editDraft = fr.type === 'walk' ? { start: hhmm(fr.ts), end: fr.ended_at ? hhmm(fr.ended_at) : '' } : { time: hhmm(fr.ts), kind: fr.kind };
+      }
+      pendingDelete = null;
+      renderFeed();
+    }
+    else if (act === 'edit_cancel') { editKey = null; renderFeed(); }
+    else if (act === 'edit_save') {
+      var fr2 = findItem(editKey);
+      if (!fr2) { editKey = null; renderFeed(); return; }
+      var body2 = { type: fr2.type, id: fr2.id };
+      if (fr2.type === 'walk') {
+        body2.shift_start_min = diffMin(hhmm(fr2.ts), editDraft.start);
+        if (fr2.ended_at) body2.shift_end_min = diffMin(hhmm(fr2.ended_at), editDraft.end);
+      } else {
+        body2.shift_min = diffMin(hhmm(fr2.ts), editDraft.time);
+        if (editDraft.kind !== fr2.kind) body2.kind = editDraft.kind;
+      }
+      editKey = null;
+      doAct('/api/edit', body2);
+    }
     else if (act === 'delete') {
       var key = t.dataset.type + ':' + t.dataset.id;
       if (pendingDelete !== key) {
@@ -549,6 +662,7 @@
         renderFeed();
       } else {
         pendingDelete = null;
+        editKey = null;
         doAct('/api/delete', { type: t.dataset.type, id: Number(t.dataset.id) });
       }
     }
@@ -597,7 +711,7 @@
     showNote('לוח הבקרה נפתח מתוך הבוט', 'פתחו את בלבוט בטלגרם ולחצו על "📊 לוח בקרה".');
   } else {
     load();
-    setInterval(function () { if (!document.hidden && !busy) load(); }, 15000);
+    setInterval(function () { if (!document.hidden && !busy && !editKey) load(); }, 15000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
   }
 })();

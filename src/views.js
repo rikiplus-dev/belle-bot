@@ -57,6 +57,56 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
 
 const back = [[btn('⬅️ חזרה', 'm:menu')]];
 
+// מקשים קבועים בתחתית הצ'אט (לא נגללים משם)
+export const KB_LABELS = {
+  walk_start: '🚶 יצאנו',
+  walk_end: '🏁 חזרנו',
+  meal: '🍽 אכלה',
+  pee_out: '💧 פיפי בחוץ',
+  poop_out: '💩 קקי בחוץ',
+  menu: '📋 תפריט',
+  undo: '↩️ ביטול',
+  edit: '✏️ עריכה',
+};
+export const replyKeyboard = {
+  keyboard: [
+    [{ text: KB_LABELS.walk_start }, { text: KB_LABELS.walk_end }, { text: KB_LABELS.meal }],
+    [{ text: KB_LABELS.pee_out }, { text: KB_LABELS.poop_out }],
+    [{ text: KB_LABELS.menu }, { text: KB_LABELS.undo }, { text: KB_LABELS.edit }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+// עריכת הפעולות האחרונות של בן הבית (כפתורים: הקדמה/איחור, מחיקה)
+export async function editList(env, user, notice = '') {
+  const now = Date.now();
+  const tz = tzOf(env);
+  const since = now - 36 * 3600000;
+  const [events, walks] = await Promise.all([db.eventsSince(env, since), db.walksSince(env, since)]);
+  const items = [];
+  for (const w of walks.filter((x) => x.member === user.member)) {
+    items.push({ t: 'w', id: w.id, ts: w.started_at, label: `🚶 טיול ${hhmm(w.started_at, tz)}${w.ended_at ? '–' + hhmm(w.ended_at, tz) : ''}` });
+  }
+  for (const e of events.filter((x) => x.member === user.member)) {
+    const k = KINDS[e.kind];
+    if (k) items.push({ t: 'e', id: e.id, ts: e.ts, label: `${k.emoji} ${k.label} ${hhmm(e.ts, tz)}` });
+  }
+  items.sort((a, b) => b.ts - a.ts);
+  const list = items.slice(0, 6);
+  const nums = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣'];
+  const lines = [`✏️ <b>עריכת הפעולות של ${esc(name(user.member))}</b>`, 'לחצו על הקדמה או איחור של 5 דקות, או על 🗑 כדי למחוק.'];
+  if (notice) lines.push('', notice);
+  lines.push('');
+  if (!list.length) lines.push('אין פעולות לעריכה.');
+  const rows = list.map((it, i) => {
+    lines.push(`${nums[i]} ${it.label}`);
+    return [btn(`${nums[i]} ⏪ 5`, `ed:s:${it.t}:${it.id}:-5`), btn('⏩ 5', `ed:s:${it.t}:${it.id}:5`), btn('🗑', `ed:d:${it.t}:${it.id}`)];
+  });
+  rows.push([btn('⬅️ חזרה ללוח', 'm:menu')]);
+  return { text: lines.join('\n'), reply_markup: { inline_keyboard: rows } };
+}
+
 // בחירת בן בית שבשמו מתעדים (מנהלים בלבד)
 export function actAsPicker(real, acting) {
   const rows = [];
@@ -136,7 +186,7 @@ export async function todayView(env) {
   const lines = ['📋 <b>היום</b>', ''];
   if (!items.length) lines.push('עדיין לא תועד כלום היום.');
   for (const it of items.slice(-25)) lines.push(it.line);
-  return { text: lines.join('\n'), reply_markup: { inline_keyboard: back } };
+  return { text: lines.join('\n'), reply_markup: { inline_keyboard: [[btn('✏️ עריכת הפעולות שלי', 'm:edit')], ...back] } };
 }
 
 /* ---------- הגדרות ---------- */

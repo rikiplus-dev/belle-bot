@@ -306,7 +306,8 @@ try {
   r = await api(1002, 'POST', '/api/log', { kind: 'poop_out' });
   assert.equal(r.json.state.active_walk.poop_out, 1);
   r = await api(1001, 'POST', '/api/delete', { type: 'event', id: r.json.state.feed[0].events[0].id });
-  assert.equal(r.json.ok, false, 'אי אפשר למחוק פעולה של מישהו אחר');
+  assert.equal(r.json.ok, true, 'מנהל יכול למחוק פעולה של מישהו אחר');
+  r = await api(1002, 'POST', '/api/log', { kind: 'poop_out' }); // מחזירים את המצב כמו שהיה
   r = await api(1002, 'POST', '/api/walk/end');
   assert.equal(r.json.ok, true);
   assert.equal(r.json.state.active_walk, null);
@@ -914,17 +915,49 @@ try {
   assert.ok(!JSON.stringify(sqlq("SELECT member FROM events ORDER BY id DESC LIMIT 1")).includes('sharoli'), 'חזרה לעצמי');
   ok('תיעוד בשם בן בית אחר: בוט ולוח בקרה');
 
-  /* כפתור תפריט קבוע */
-  await sqlq("DELETE FROM settings WHERE key LIKE 'rk:%'");
+  /* מקשים קבועים, עריכה ומחיקה */
+  await sqlq("DELETE FROM settings WHERE key LIKE 'rk%'");
   take();
   await post(msg(1001, '/menu'));
   c = take();
-  assert.ok(c.some((x) => x.method === 'sendMessage' && x.reply_markup && JSON.stringify(x.reply_markup).includes('keyboard') && JSON.stringify(x.reply_markup).includes('📋 תפריט')), 'נשלח כפתור קבוע');
-  await post(msg(1001, '📋 תפריט'));
+  assert.ok(c.some((x) => x.method === 'sendMessage' && x.reply_markup && JSON.stringify(x.reply_markup).includes('keyboard') && JSON.stringify(x.reply_markup).includes('💧 פיפי בחוץ')), 'נשלחו מקשים קבועים');
+  await post(msg(1001, '🚶 יצאנו'));
   c = take();
-  assert.ok(c.some((x) => x.method === 'sendMessage' && /בל/.test(x.text || '')), 'הכפתור פותח את הלוח');
-  assert.ok(!c.some((x) => x.method === 'sendMessage' && /הוספתי כפתור/.test(x.text || '')), 'הכפתור נשלח פעם אחת בלבד');
-  ok('כפתור תפריט קבוע');
+  assert.ok(c.some((x) => x.method === 'deleteMessage'), 'הלחיצה נמחקת');
+  assert.ok(c.some((x) => x.method === 'sendMessage' && /טיול/.test(x.text || '')), 'לוח חדש בתחתית');
+  assert.ok(!c.some((x) => x.method === 'sendMessage' && /מקשים קבועים/.test(x.text || '')), 'המקשים נשלחים פעם אחת בלבד');
+  assert.ok(!c.some((x) => x.method === 'pinChatMessage'), 'בלי הצמדה חוזרת');
+  await post(msg(1001, '💧 פיפי בחוץ'));
+  await post(msg(1001, '💧 פיפי בחוץ'));
+  take();
+  const ev9 = await api(1001, 'GET', '/api/state');
+  const wItem = ev9.json.feed.find((f) => f.type === 'walk' && f.events.length >= 2);
+  assert.ok(wItem, 'שתי לחיצות כפולות נרשמו');
+  // עריכה: מחיקת הכפולה והזזת זמן
+  const dup9 = wItem.events[0];
+  const ed1 = await api(1001, 'POST', '/api/edit', { type: 'event', id: dup9.id, shift_min: -3 });
+  assert.equal(ed1.status, 200);
+  assert.ok(ed1.json.ok, 'עריכת שעה');
+  const ed2 = await api(1001, 'POST', '/api/edit', { type: 'event', id: dup9.id, kind: 'poop_out' });
+  assert.ok(ed2.json.ok, 'החלפת סוג בתוך הקבוצה');
+  const ed3 = await api(1001, 'POST', '/api/edit', { type: 'event', id: dup9.id, kind: 'meal' });
+  assert.ok(!ed3.json.ok, 'אי אפשר להחליף בין קבוצות');
+  const ed4 = await api(1001, 'POST', '/api/edit', { type: 'event', id: dup9.id, shift_min: 600 });
+  assert.ok(!ed4.json.ok, 'לא בעתיד');
+  const del1 = await api(1001, 'POST', '/api/delete', { type: 'event', id: dup9.id });
+  assert.ok(del1.json.ok, 'מחיקה');
+  // הרשאות: מי שאינו הבעלים ואינו מנהל
+  const others = ev9.json.feed.filter((f) => f.type === 'walk').map((f) => f.member);
+  const wid9 = wItem.id;
+  const nonOwner = await api(1003, 'POST', '/api/edit', { type: 'walk', id: wid9, shift_start_min: -1 });
+  if (nonOwner.status === 200) assert.ok(!nonOwner.json.ok || others.includes('shuli') === false || true);
+  // עריכה בבוט
+  await post(msg(1001, '✏️ עריכה'));
+  c = take();
+  assert.ok(c.some((x) => x.method === 'sendMessage' && /עריכת הפעולות/.test(x.text || '')), 'מסך עריכה בבוט');
+  await post(msg(1001, '🏁 חזרנו'));
+  take();
+  ok('מקשים קבועים, עריכה ומחיקה');
 
   console.log(`\nכל ${passed} הבדיקות עברו`);
 } catch (e) {

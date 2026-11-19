@@ -146,13 +146,25 @@ export const walkMsgs = async (env, walkId) => (await q(env, 'SELECT * FROM walk
 export const maxWalkId = async (env) => (await q(env, 'SELECT MAX(id) m FROM walks').first())?.m || 0;
 export const pruneWalkMsgs = (env, minWalkId) => q(env, 'DELETE FROM walk_msgs WHERE walk_id<?', minWalkId).run();
 
+export const getEvent = (env, id) => q(env, 'SELECT * FROM events WHERE id=?', id).first();
+export const getWalk = (env, id) => q(env, 'SELECT * FROM walks WHERE id=?', id).first();
+
+export const updateEvent = (env, id, ts, kind) => q(env, 'UPDATE events SET ts=?, kind=? WHERE id=?', ts, kind, id).run();
+export const updateWalk = (env, id, startedAt, endedAt) =>
+  q(env, 'UPDATE walks SET started_at=?, ended_at=? WHERE id=?', startedAt, endedAt, id).run();
+
+// member=null: מנהל, מוחק של כל אחד
 export async function deleteEvent(env, id, member) {
-  const r = await q(env, 'DELETE FROM events WHERE id=? AND member=?', id, member).run();
+  const r = member
+    ? await q(env, 'DELETE FROM events WHERE id=? AND member=?', id, member).run()
+    : await q(env, 'DELETE FROM events WHERE id=?', id).run();
   return r.meta.changes > 0;
 }
 
 export async function deleteWalk(env, id, member) {
-  const w = await q(env, 'SELECT id FROM walks WHERE id=? AND member=?', id, member).first();
+  const w = member
+    ? await q(env, 'SELECT id FROM walks WHERE id=? AND member=?', id, member).first()
+    : await q(env, 'SELECT id FROM walks WHERE id=?', id).first();
   if (!w) return false;
   await env.DB.batch([q(env, 'DELETE FROM events WHERE walk_id=?', id), q(env, 'DELETE FROM walks WHERE id=?', id)]);
   return true;

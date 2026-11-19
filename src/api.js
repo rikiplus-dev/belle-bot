@@ -180,8 +180,16 @@ export async function handleApi(request, env, ctx) {
     result = await act.undo(env, user.member, now);
   } else if (path === '/api/delete') {
     const id = Number(body.id);
-    const ok = body.type === 'walk' ? await db.deleteWalk(env, id, user.member) : await db.deleteEvent(env, id, user.member);
+    const owner = isAdmin(user) ? null : user.member; // מנהלים מוחקים של כולם
+    const ok = body.type === 'walk' ? await db.deleteWalk(env, id, owner) : await db.deleteEvent(env, id, owner);
     result = { ok, toast: ok ? 'נמחק' : 'אפשר למחוק רק פעולות שלך' };
+  } else if (path === '/api/edit') {
+    const id = Number(body.id);
+    const canEdit = (row) => isAdmin(user) || row.member === user.member;
+    result =
+      body.type === 'walk'
+        ? await act.editWalk(env, id, { shiftStart: body.shift_start_min, shiftEnd: body.shift_end_min }, now, canEdit)
+        : await act.editEvent(env, id, { shiftMin: body.shift_min, kind: body.kind || null }, now, canEdit);
   } else {
     return json({ error: 'not_found' }, 404);
   }
