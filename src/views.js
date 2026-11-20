@@ -43,7 +43,7 @@ export async function panel(env, user, { notice = '', isPrivate = true, origin =
     rows.push([btn('🚶 יוצאים לטיול', 'a:walk_start')]);
   }
   rows.push([btn('🏠 פיפי בבית', 'a:pee_home'), btn('🏠 קקי בבית', 'a:poop_home')]);
-  rows.push([btn('🍽 בל אכלה', 'a:meal'), btn('👩‍🍳 הכנתי אוכל', 'a:cook')]);
+  rows.push([btn('🍽 בל אכלה', 'a:meal')]);
   const undo = await db.peekUndo(env, user.member, now);
   if (undo) {
     const what = undo.type === 'walk' ? '🚶 טיול' : `${KINDS[undo.kind].emoji} ${KINDS[undo.kind].label}`;
@@ -157,7 +157,7 @@ export async function starsView(env) {
     MEMBERS.map((m) => `${esc(m.name)} ${all[m.id].total}`).join(' · '),
   );
   lines.push('');
-  lines.push('<i>כוכב על: טיול שהסתיים, פיפי או קקי בחוץ, והכנת אוכל</i>');
+  lines.push('<i>כוכב על: טיול שהסתיים, פיפי או קקי בחוץ</i>');
   return { text: lines.join('\n'), reply_markup: { inline_keyboard: back } };
 }
 
@@ -261,7 +261,7 @@ export function lateStart(who) {
       inline_keyboard: [
         [btn('🚶 טיול שהיה', `lk:${who}:walk`)],
         [btn('🏠 פיפי בבית', `lk:${who}:pee_home`), btn('🏠 קקי בבית', `lk:${who}:poop_home`)],
-        [btn('🍽 בל אכלה', `lk:${who}:meal`), btn('👩‍🍳 הכנת אוכל', `lk:${who}:cook`)],
+        [btn('🍽 בל אכלה', `lk:${who}:meal`)],
         [btn(`👤 מי עשה: ${name(who)} ⟳`, `lw:${nextMember(who)}`)],
         [btn('⬅️ חזרה', 'm:menu')],
       ],
@@ -378,7 +378,7 @@ export const helpText = [
   '• 🚶 <b>יוצאים לטיול</b> פותח טיול. בתוכו מתעדים 💧 פיפי ו-💩 קקי בחוץ, והם נשמרים בטיול הזה.',
   '• 🏁 <b>חזרנו</b> סוגר את הטיול ונותן כוכב.',
   '• 🏠 פיפי או קקי <b>בבית</b> לא מורידים כוכבים, הם עוזרים לראות מתי זה קורה.',
-  '• 🍽 אכלה, 👩‍🍳 הכנתי אוכל.',
+  '• 🍽 אכלה.',
   '• ↩️ ביטול מבטל את הפעולה האחרונה שלך (עד 15 דקות).',
   '• 🩺 <b>בריאות</b> (לאמתי וריקי): תרופות עם תזכורות, יומן רפואי ומועדי חיסונים.',
   '• 🐶 <b>הכול על בל</b> (או /bell): תעודה עם תאריך לידה ופרטים, ⚖️ משקל, 🎓 חיברות ופקודות, 💡 טיפים, ולאמתי וריקי גם 📄 דוח מלא לווטרינר. משקל מהיר: /weight 2.4',

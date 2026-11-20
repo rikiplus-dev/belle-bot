@@ -248,17 +248,16 @@ try {
   const afterHome = find(take(), 'editMessageText');
   assert.match(afterHome.text, /תאונה אחרונה/);
   assert.match(JSON.stringify(afterHome.reply_markup), /בטל: 🏠/, 'כפתור הביטול אומר מה יבוטל');
-  await post(cb(1001, 'a:cook'));
   await post(cb(1001, 'a:meal'));
   take();
-  ok('פיפי בבית, הכנת אוכל, אכלה');
+  ok('פיפי בבית ואכלה');
 
   /* כוכבים */
   await post(cb(1001, 'm:stars'));
   const stars = find(take(), 'editMessageText').text;
-  assert.match(stars, /ריקי\s+⭐ <b>3<\/b>/); // קקי בחוץ + טיול + הכנת אוכל
+  assert.match(stars, /ריקי\s+⭐ <b>2<\/b>/); // קקי בחוץ + טיול
   assert.match(stars, /שולי\s+⭐ <b>1<\/b>/); // פיפי בחוץ
-  ok('כוכבים: ריקי 3, שולי 1');
+  ok('כוכבים: ריקי 2, שולי 1');
 
   /* ביטול */
   await post(cb(1001, 'm:undo'));
@@ -294,7 +293,7 @@ try {
   assert.equal((await api(7777, 'GET', '/api/state')).status, 403);
   let s = (await api(1001, 'GET', '/api/state')).json;
   assert.equal(s.me.member, 'riki');
-  assert.equal(s.stars_week.riki.total, 3);
+  assert.equal(s.stars_week.riki.total, 2);
   const walkItem = s.feed.find((f) => f.type === 'walk');
   assert.equal(walkItem.events.length, 2);
   assert.deepEqual(s.days[6], { label: s.days[6].label, out: 2, home: 2, today: true });
@@ -350,7 +349,8 @@ try {
     assert.ok(!take().find((x) => /אכלה לפני/.test(x.text || '')), 'לא שולחים פעמיים');
     ok('תזכורת אחרי ארוחה, פעם אחת בלבד');
 
-    // לא יצאו כבר 4 שעות
+    // לא יצאו כבר 4 שעות (השינה לא נספרת, אז מזיזים את ההשכמה לחצות כדי שהבדיקה לא תלויה בשעה)
+    sql("INSERT INTO settings(key,value) VALUES('sleep_to','0') ON CONFLICT(key) DO UPDATE SET value='0'");
     sql('DELETE FROM events');
     sql('DELETE FROM walks');
     const t4 = Date.now() - 4 * 3600000;
@@ -363,6 +363,7 @@ try {
     const nudge = c.find((x) => x.method === 'sendMessage' && /עברו/.test(x.text));
     assert.ok(nudge.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'a:walk_start'));
     ok('תזכורת אחרי 4 שעות בלי יציאה, עם כפתור "יוצאים לטיול"');
+    sql("DELETE FROM settings WHERE key='sleep_to'");
 
   } else {
     console.log('  – שעות שקט עכשיו, מדלגים על בדיקת תזכורת אחרי ארוחה');
@@ -437,7 +438,7 @@ try {
   ok('עדכון אחורה: טיול שהיה עם פיפי וקקי שנשמרים בתוכו וכוכבים');
 
   // שעה מדויקת בהקלדה
-  await post(cb(1001, 'lx:riki:cook'));
+  await post(cb(1001, 'lx:riki:meal'));
   take();
   await post(msg(1001, 'abc'));
   assert.match(find(take(), 'sendMessage').text, /לא הבנתי/);
@@ -445,7 +446,7 @@ try {
   const hh = String(new Date(nowD.getTime() - 2 * 3600000).toLocaleString('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false }));
   await post(msg(1001, hh));
   c = take();
-  assert.ok(find(c, 'sendMessage', /הכנת אוכל/), 'נשמר לפי שעה מדויקת');
+  assert.ok(find(c, 'sendMessage', /אכלה|ארוחה/), 'נשמר לפי שעה מדויקת');
   ok('עדכון אחורה: שעה מדויקת בהקלדה');
 
   // הגנות: סוג לא מורשה וזמן רחוק מדי

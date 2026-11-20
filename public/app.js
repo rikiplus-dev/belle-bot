@@ -251,7 +251,7 @@
     var home = $('homeTiles');
     home.replaceChildren(tile('pee_home', 'פיפי בבית', 'pee', '--home'), tile('poop_home', 'קקי בבית', 'poop', '--home'));
     var care = $('careTiles');
-    care.replaceChildren(tile('meal', 'בל אכלה', 'meal', '--meal'), tile('cook', 'הכנתי אוכל', 'cook', '--cook'));
+    care.replaceChildren(tile('meal', 'בל אכלה', 'meal', '--meal'));
 
     // אילוף היום
     var t = S.today;
@@ -438,7 +438,7 @@
     if (!max) {
       var m0 = el('div', 'mascotbox');
       var im = el('img', 'mascot'); im.src = '/assets/bell-mascot-happy.svg'; im.alt = '';
-      m0.append(im, el('div', '', 'בל מחכה לכוכבים הראשונים. טיול, פיפי בחוץ והכנת אוכל נותנים כוכב.'));
+      m0.append(im, el('div', '', 'בל מחכה לכוכבים הראשונים. טיול ופיפי או קקי בחוץ נותנים כוכב.'));
       box.replaceChildren(m0);
       return;
     }

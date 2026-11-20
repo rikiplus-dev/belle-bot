@@ -131,7 +131,7 @@ export function parseFreeText(text, now, tz) {
   if (/מותר|אפשר לתת|אפשר לאכול|יכולה לאכול|יכולה לקבל/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'food' };
   if (/^(חזרנו|חזרתי|חזרה|סיימנו|סיימתי)(\s|$)/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'walk_end' };
   if (/^(יצאנו|יוצאים|יצאתי|יוצאת|יוצא|התחלנו)(\s|$)/.test(t) && /טיול|החוצה|עם בל|הולכים|הליכה/.test(t)) return { intent: 'walk_start' };
-  if (/^הכנתי\s+(אוכל|ארוחה)/.test(t)) return { intent: 'event', kinds: ['cook'], where: null, minAgo };
+  if (/^הכנתי\s+(אוכל|ארוחה)/.test(t)) return { intent: 'event', kinds: ['meal'], where: null, minAgo };
   if (/אכלה|האכלתי|נתתי (לה )?(לאכול|אוכל)|ארוחה/.test(t) && !/פיפי|קקי/.test(t)) return { intent: 'event', kinds: ['meal'], where: null, minAgo };
   const pee = /פיפי|השתינה/.test(t);
   const poop = /קקי|עשתה צרכים|צרכים/.test(t);
